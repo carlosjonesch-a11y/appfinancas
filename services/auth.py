@@ -216,6 +216,12 @@ def render_login_page():
     
     with tab1:
         st.subheader("Entrar")
+
+        try:
+            if not auth.config.get("credentials", {}).get("usernames"):
+                st.info("Nenhum usuário cadastrado neste deploy ainda. Vá na aba **Cadastro** e crie o primeiro usuário.")
+        except Exception:
+            pass
         
         with st.form("login_form"):
             username = st.text_input("Usuário", key="login_username")
