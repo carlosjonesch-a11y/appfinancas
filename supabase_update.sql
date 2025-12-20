@@ -43,3 +43,7 @@ CREATE INDEX IF NOT EXISTS idx_auth_credenciais_username ON auth_credenciais(use
 CREATE INDEX IF NOT EXISTS idx_auth_credenciais_email ON auth_credenciais(email);
 
 ALTER TABLE auth_credenciais DISABLE ROW LEVEL SECURITY;
+
+-- Opcional: forçar reload do schema cache do PostgREST (ajuda a resolver PGRST205 rapidamente)
+-- Se der erro de permissão, ignore e use: Settings → API → Reload schema
+NOTIFY pgrst, 'reload schema';

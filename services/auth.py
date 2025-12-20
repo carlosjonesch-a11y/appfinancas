@@ -95,10 +95,34 @@ class AuthService:
             self.config = load_credentials()
         self._init_session_state()
 
+    @staticmethod
+    def _is_missing_auth_table_error(err: Exception) -> bool:
+        """Detecta erro do PostgREST quando a tabela não existe no schema cache (PGRST205)."""
+        msg = str(err)
+        return (
+            "PGRST205" in msg
+            or "schema cache" in msg.lower()
+            or "Could not find the table" in msg
+            or "auth_credenciais" in msg
+        )
+
     def _use_supabase_auth(self) -> bool:
         """Define se a autenticação deve ser persistida no Supabase."""
         try:
-            return bool(db.is_connected and (not db.is_local) and getattr(db, "_client", None) is not None)
+            ok = bool(db.is_connected and (not db.is_local) and getattr(db, "_client", None) is not None)
+            if not ok:
+                return False
+
+            # Só habilita auth via Supabase se a tabela existir no schema cache
+            client = getattr(db, "_client", None)
+            try:
+                client.table(self.AUTH_TABLE).select("id").limit(1).execute()
+                return True
+            except Exception as e:
+                if self._is_missing_auth_table_error(e):
+                    return False
+                # Se for outro erro, ainda assim desliga para não travar o app
+                return False
         except Exception:
             return False
 
@@ -192,10 +216,9 @@ class AuthService:
                 client.table(self.AUTH_TABLE).insert(payload).execute()
                 return True, "Usuário registrado com sucesso!"
             except Exception as e:
-                # Erro comum: tabela auth_credenciais não existe
                 msg = str(e)
-                if "auth_credenciais" in msg and ("does not exist" in msg.lower() or "not exist" in msg.lower()):
-                    return False, "Tabela de autenticação não existe no Supabase. Execute o SQL em supabase_update.sql e tente novamente."
+                if self._is_missing_auth_table_error(e):
+                    return False, "Tabela de autenticação não existe/não está no schema cache do Supabase. Execute o SQL em supabase_update.sql e depois faça Reload do schema (Settings → API → Reload schema) e tente novamente."
                 return False, f"Erro ao registrar usuário: {msg}"
 
         # Backend local (YAML)
@@ -254,6 +277,8 @@ class AuthService:
 
                 return True, f"Bem-vindo(a), {user_data.get('nome', username)}!"
             except Exception as e:
+                if self._is_missing_auth_table_error(e):
+                    return False, "A tabela de autenticação ainda não está disponível no Supabase (PGRST205). Execute supabase_update.sql e faça Reload do schema (Settings → API → Reload schema)."
                 return False, f"Erro ao autenticar: {str(e)}"
         
         users = self.config["credentials"]["usernames"]
