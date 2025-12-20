@@ -5,7 +5,6 @@ Usa streamlit-authenticator com armazenamento local em YAML
 import streamlit as st
 import yaml
 from yaml.loader import SafeLoader
-import os
 from pathlib import Path
 from typing import Optional, Dict, Tuple
 import bcrypt
@@ -88,10 +87,55 @@ def get_default_credentials() -> Dict:
 
 class AuthService:
     """Serviço de autenticação simplificado para Streamlit"""
+    AUTH_TABLE = "auth_credenciais"
     
     def __init__(self):
-        self.config = load_credentials()
+        self.config = get_default_credentials()
+        if not self._use_supabase_auth():
+            self.config = load_credentials()
         self._init_session_state()
+
+    def _use_supabase_auth(self) -> bool:
+        """Define se a autenticação deve ser persistida no Supabase."""
+        try:
+            return bool(db.is_connected and (not db.is_local) and getattr(db, "_client", None) is not None)
+        except Exception:
+            return False
+
+    def _supabase_client(self):
+        return getattr(db, "_client", None)
+
+    def _supabase_get_by_username(self, username: str) -> Optional[Dict]:
+        client = self._supabase_client()
+        if not client:
+            return None
+        result = client.table(self.AUTH_TABLE).select("*").eq("username", username).limit(1).execute()
+        return result.data[0] if result.data else None
+
+    def _supabase_get_by_email(self, email: str) -> Optional[Dict]:
+        client = self._supabase_client()
+        if not client:
+            return None
+        result = client.table(self.AUTH_TABLE).select("*").eq("email", email).limit(1).execute()
+        return result.data[0] if result.data else None
+
+    def has_any_users(self) -> bool:
+        """Usado só para UX (mostrar dica quando não existe nenhum usuário)."""
+        if self._use_supabase_auth():
+            client = self._supabase_client()
+            if not client:
+                return False
+            try:
+                # "count" varia por lib/versão; usar select mínimo
+                result = client.table(self.AUTH_TABLE).select("id").limit(1).execute()
+                return bool(result.data)
+            except Exception:
+                return False
+
+        try:
+            return bool(self.config.get("credentials", {}).get("usernames"))
+        except Exception:
+            return False
     
     def _init_session_state(self):
         """Inicializa variáveis de sessão"""
@@ -118,11 +162,46 @@ class AuthService:
         if len(username) < 3:
             return False, "O nome de usuário deve ter pelo menos 3 caracteres"
         
-        # Verificar se usuário já existe
+        # Backend Supabase (persistente)
+        if self._use_supabase_auth():
+            try:
+                if self._supabase_get_by_username(username):
+                    return False, "Nome de usuário já existe"
+                if self._supabase_get_by_email(email):
+                    return False, "Email já cadastrado"
+
+                password_hash = hash_password(password)
+
+                # Criar usuário no banco principal e categorias padrão
+                db_user = db.criar_usuario(email=email, nome=nome)
+                if db_user:
+                    db.criar_categorias_padrao(db_user["id"])
+                    user_id = db_user["id"]
+                else:
+                    # Fallback: sem usuario no banco principal
+                    user_id = None
+
+                payload = {
+                    "username": username,
+                    "email": email,
+                    "nome": nome,
+                    "password_hash": password_hash,
+                    "user_id": user_id,
+                }
+                client = self._supabase_client()
+                client.table(self.AUTH_TABLE).insert(payload).execute()
+                return True, "Usuário registrado com sucesso!"
+            except Exception as e:
+                # Erro comum: tabela auth_credenciais não existe
+                msg = str(e)
+                if "auth_credenciais" in msg and ("does not exist" in msg.lower() or "not exist" in msg.lower()):
+                    return False, "Tabela de autenticação não existe no Supabase. Execute o SQL em supabase_update.sql e tente novamente."
+                return False, f"Erro ao registrar usuário: {msg}"
+
+        # Backend local (YAML)
         if username in self.config["credentials"]["usernames"]:
             return False, "Nome de usuário já existe"
-        
-        # Verificar se email já existe
+
         for user_data in self.config["credentials"]["usernames"].values():
             if user_data.get("email") == email:
                 return False, "Email já cadastrado"
@@ -156,6 +235,26 @@ class AuthService:
         """Realiza login do usuário"""
         if not username or not password:
             return False, "Preencha usuário e senha"
+
+        # Backend Supabase (persistente)
+        if self._use_supabase_auth():
+            try:
+                user_data = self._supabase_get_by_username(username)
+                if not user_data:
+                    return False, "Usuário não encontrado"
+
+                if not verify_password(password, user_data.get("password_hash", "")):
+                    return False, "Senha incorreta"
+
+                st.session_state.authenticated = True
+                st.session_state.username = username
+                st.session_state.user_id = user_data.get("user_id", username)
+                st.session_state.user_name = user_data.get("nome", username)
+                st.session_state.user_email = user_data.get("email", "")
+
+                return True, f"Bem-vindo(a), {user_data.get('nome', username)}!"
+            except Exception as e:
+                return False, f"Erro ao autenticar: {str(e)}"
         
         users = self.config["credentials"]["usernames"]
         
@@ -217,11 +316,8 @@ def render_login_page():
     with tab1:
         st.subheader("Entrar")
 
-        try:
-            if not auth.config.get("credentials", {}).get("usernames"):
-                st.info("Nenhum usuário cadastrado neste deploy ainda. Vá na aba **Cadastro** e crie o primeiro usuário.")
-        except Exception:
-            pass
+        if not auth.has_any_users():
+            st.info("Nenhum usuário cadastrado neste deploy ainda. Vá na aba **Cadastro** e crie o primeiro usuário.")
         
         with st.form("login_form"):
             username = st.text_input("Usuário", key="login_username")

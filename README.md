@@ -136,7 +136,7 @@ app finanças/
 
 Observações importantes:
 - O Streamlit Cloud não é armazenamento persistente. Arquivos locais (ex: `data/credentials.yaml`) podem ser perdidos se o app reiniciar.
-- Para testes rápidos isso funciona; para produção, o ideal é mover autenticação/usuários para um backend (ex: Supabase Auth).
+- Para evitar recriar usuário a cada reboot, o deploy usa autenticação persistida no Supabase (tabela `auth_credenciais`). Execute o SQL em `supabase_update.sql`.
 - **Não versionar** `data/credentials.yaml`: ele pode conter emails e hashes de senha. Ele já foi adicionado ao `.gitignore`.
 
 ### Render
