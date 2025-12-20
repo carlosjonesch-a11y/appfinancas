@@ -1,0 +1,28 @@
+# Framework Web
+streamlit>=1.29.0
+streamlit-authenticator>=0.3.1
+
+# Banco de Dados
+sqlalchemy>=2.0.0
+psycopg2-binary>=2.9.9
+supabase>=2.0.0
+
+# OCR e Processamento de Imagem
+easyocr>=1.7.1
+pillow>=10.1.0
+opencv-python-headless>=4.8.0
+
+# Análise de Dados e Visualização
+pandas>=2.1.0
+plotly>=5.18.0
+numpy>=1.26.0
+
+# Utilitários
+python-dotenv>=1.0.0
+bcrypt>=4.1.0
+pyyaml>=6.0.1
+python-dateutil>=2.8.2
+regex>=2023.10.3
+
+# Exportação
+openpyxl>=3.1.2
