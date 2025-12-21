@@ -310,40 +310,57 @@ def render_transacoes_recentes(transacoes: List[Dict]):
         st.info("Nenhuma transação recente")
         return
     
+    rows: List[Dict] = []
     for t in transacoes:
         cat = t.get("categorias") or {}
         icone = cat.get("icone", "📦")
         cat_nome = cat.get("nome", "Sem categoria")
-        
-        # Formatar data
-        data_str = t["data"]
-        if isinstance(data_str, str):
+
+        data_value = None
+        data_raw = t.get("data")
+        if isinstance(data_raw, str):
             try:
-                data_obj = datetime.fromisoformat(data_str.replace("Z", "+00:00"))
-                data_formatada = data_obj.strftime("%d/%m")
-            except:
-                data_formatada = data_str[:10]
-        else:
-            data_formatada = str(data_str)[:10]
-        
-        # Cor baseada no tipo
-        cor = "🟢" if t["tipo"] == "receita" else "🔴"
-        sinal = "+" if t["tipo"] == "receita" else "-"
-        
-        col1, col2, col3 = st.columns([0.5, 3, 1])
-        
-        with col1:
-            st.write(f"{data_formatada}")
-        
-        with col2:
-            st.write(f"{icone} **{t['descricao'][:40]}** - {cat_nome}")
-        
-        with col3:
-            valor_formatado = f"{sinal} R$ {float(t['valor']):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-            if t["tipo"] == "receita":
-                st.markdown(f"<span style='color: #2ecc71; font-weight: bold;'>{valor_formatado}</span>", unsafe_allow_html=True)
-            else:
-                st.markdown(f"<span style='color: #e74c3c; font-weight: bold;'>{valor_formatado}</span>", unsafe_allow_html=True)
+                data_value = datetime.fromisoformat(data_raw.replace("Z", "+00:00")).date()
+            except Exception:
+                data_value = None
+        elif isinstance(data_raw, (datetime, date)):
+            try:
+                data_value = data_raw.date() if isinstance(data_raw, datetime) else data_raw
+            except Exception:
+                data_value = None
+
+        tipo_raw = t.get("tipo")
+        tipo_label = "Receita" if tipo_raw == "receita" else "Despesa"
+
+        valor = 0.0
+        try:
+            valor = float(t.get("valor", 0) or 0)
+        except Exception:
+            valor = 0.0
+
+        # Mostrar valor sempre positivo e usar o Tipo como contexto (mais legível na tabela)
+        rows.append({
+            "Data": data_value,
+            "Descrição": (t.get("descricao") or "")[:60],
+            "Categoria": f"{icone} {cat_nome}",
+            "Tipo": tipo_label,
+            "Valor": abs(valor),
+        })
+
+    df = pd.DataFrame(rows)
+
+    st.dataframe(
+        df,
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
+            "Descrição": st.column_config.TextColumn("Descrição"),
+            "Categoria": st.column_config.TextColumn("Categoria"),
+            "Tipo": st.column_config.TextColumn("Tipo"),
+            "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
+        },
+    )
 
 
 def render_widget_resumo_lateral():
