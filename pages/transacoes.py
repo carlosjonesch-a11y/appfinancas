@@ -147,29 +147,39 @@ def render_nova_transacao_page():
 
 def render_lancamento_manual(user_id: str):
     """Formulário de lançamento manual"""
-    
+
+    # IMPORTANTE: widgets dentro de st.form não disparam rerun ao mudar.
+    # Se o usuário trocar Tipo dentro do form, a lista de categorias não atualiza.
+    # Por isso, o seletor de Tipo fica fora do form.
+    col_tipo, col_data = st.columns(2)
+    with col_tipo:
+        tipo = st.selectbox(
+            "Tipo",
+            options=["Despesa", "Receita"],
+            key="manual_tipo"
+        )
+    tipo_valor = "despesa" if tipo == "Despesa" else "receita"
+
+    prev_tipo_valor = st.session_state.get("manual_tipo_valor_prev")
+    if prev_tipo_valor and prev_tipo_valor != tipo_valor:
+        # Evita estado inválido quando muda de despesa -> receita (ou vice-versa)
+        for k in ["manual_categoria"]:
+            if k in st.session_state:
+                del st.session_state[k]
+    st.session_state["manual_tipo_valor_prev"] = tipo_valor
+
     with st.form("form_transacao_manual"):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            tipo = st.selectbox(
-                "Tipo",
-                options=["Despesa", "Receita"],
-                key="manual_tipo"
-            )
-            tipo_valor = "despesa" if tipo == "Despesa" else "receita"
-        
-        with col2:
+        with col_data:
             data = st.date_input(
                 "Data",
                 value=date.today(),
                 key="manual_data"
             )
-        
+
         descricao = st.text_input("Descrição", key="manual_descricao")
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             valor = st.number_input(
                 "Valor (R$)",
@@ -178,19 +188,24 @@ def render_lancamento_manual(user_id: str):
                 format="%.2f",
                 key="manual_valor"
             )
-        
+
         with col2:
             categorias = db.listar_categorias(user_id, tipo=tipo_valor)
             cat_options = {f"{c['icone']} {c['nome']}": c["id"] for c in categorias}
-            
+            options = list(cat_options.keys()) if cat_options else ["Sem categoria"]
+
+            # Se a seleção atual não existe mais (mudou o tipo), limpar para não quebrar.
+            if "manual_categoria" in st.session_state and st.session_state["manual_categoria"] not in options:
+                del st.session_state["manual_categoria"]
+
             categoria_selecionada = st.selectbox(
                 "Categoria",
-                options=list(cat_options.keys()) if cat_options else ["Sem categoria"],
+                options=options,
                 key="manual_categoria"
             )
-        
+
         observacao = st.text_area("Observação (opcional)", key="manual_obs")
-        
+
         submitted = st.form_submit_button("💾 Salvar Transação", width='stretch')
     
     if submitted:
