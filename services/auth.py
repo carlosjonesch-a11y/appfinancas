@@ -126,6 +126,32 @@ class AuthService:
         except Exception:
             return False
 
+    def auth_backend_status(self) -> Dict[str, str]:
+        """Retorna um diagnóstico simples do backend de autenticação em uso."""
+        status: Dict[str, str] = {
+            "db_backend": "local" if getattr(db, "is_local", True) else "supabase",
+            "auth_backend": "yaml",
+            "reason": "",
+        }
+
+        client = getattr(db, "_client", None)
+        if not (db.is_connected and (not db.is_local) and client is not None):
+            status["reason"] = "Banco Supabase não conectado; usando YAML local (não persiste no Streamlit Cloud)."
+            return status
+
+        try:
+            client.table(self.AUTH_TABLE).select("id").limit(1).execute()
+            status["auth_backend"] = "supabase"
+            return status
+        except Exception as e:
+            if self._is_missing_auth_table_error(e):
+                status["reason"] = "Tabela auth_credenciais não existe ou não está no schema cache (PGRST205)."
+                return status
+
+            # Muito comum quando SUPABASE_KEY é anon e a tabela não tem grants.
+            status["reason"] = f"Não foi possível acessar auth_credenciais via API: {str(e)}"
+            return status
+
     def _supabase_client(self):
         return getattr(db, "_client", None)
 
@@ -332,6 +358,19 @@ class AuthService:
 def render_login_page():
     """Renderiza página de login/registro"""
     auth = AuthService()
+
+    diag = auth.auth_backend_status()
+    if diag.get("db_backend") == "supabase" and diag.get("auth_backend") != "supabase":
+        st.warning(
+            "Este deploy está conectado ao Supabase, mas o login ainda está usando YAML local (não persiste em reboot do Streamlit Cloud)."
+        )
+        reason = diag.get("reason")
+        if reason:
+            st.caption(f"Motivo detectado: {reason}")
+        st.info(
+            "Para persistir usuários: rode o SQL em `supabase_update.sql`, depois faça **Settings → API → Reload schema**. "
+            "No Streamlit Cloud, prefira configurar `SUPABASE_KEY` com a **service_role key** (fica só nos Secrets)."
+        )
     
     st.title("💰 Finanças Pessoais")
     st.markdown("---")
