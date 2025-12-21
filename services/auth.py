@@ -169,6 +169,51 @@ class AuthService:
         result = client.table(self.AUTH_TABLE).select("*").eq("email", email).limit(1).execute()
         return result.data[0] if result.data else None
 
+    def _ensure_usuario_row(self, email: str, nome: str) -> Optional[str]:
+        """Garante que existe um registro em `usuarios` e retorna o id.
+
+        Em alguns casos (erro/duplicidade), `criar_usuario` pode falhar e o auth ficaria sem `user_id`.
+        Este helper tenta buscar por email antes de criar.
+        """
+        try:
+            existente = db.buscar_usuario_por_email(email=email)
+            if existente and existente.get("id"):
+                return str(existente["id"])
+        except Exception:
+            existente = None
+
+        try:
+            criado = db.criar_usuario(email=email, nome=nome)
+            if criado and criado.get("id"):
+                return str(criado["id"])
+        except Exception:
+            return None
+
+        return None
+
+    def _ensure_auth_has_user_id(self, auth_row: Dict) -> Optional[str]:
+        """Se `auth_credenciais.user_id` estiver vazio, tenta preencher usando `usuarios` e persiste no Supabase."""
+        try:
+            current_user_id = auth_row.get("user_id")
+            if current_user_id:
+                return str(current_user_id)
+
+            email = auth_row.get("email", "")
+            nome = auth_row.get("nome", "")
+            if not email:
+                return None
+
+            user_id = self._ensure_usuario_row(email=email, nome=nome or email)
+            if not user_id:
+                return None
+
+            client = self._supabase_client()
+            if client and auth_row.get("id"):
+                client.table(self.AUTH_TABLE).update({"user_id": user_id}).eq("id", auth_row["id"]).execute()
+            return user_id
+        except Exception:
+            return None
+
     def has_any_users(self) -> bool:
         """Usado só para UX (mostrar dica quando não existe nenhum usuário)."""
         if self._use_supabase_auth():
@@ -222,14 +267,13 @@ class AuthService:
 
                 password_hash = hash_password(password)
 
-                # Criar usuário no banco principal e categorias padrão
-                db_user = db.criar_usuario(email=email, nome=nome)
-                if db_user:
-                    db.criar_categorias_padrao(db_user["id"])
-                    user_id = db_user["id"]
-                else:
-                    # Fallback: sem usuario no banco principal
-                    user_id = None
+                # Criar/garantir usuário no banco principal e categorias padrão
+                user_id = self._ensure_usuario_row(email=email, nome=nome)
+                if user_id:
+                    try:
+                        db.criar_categorias_padrao(user_id)
+                    except Exception:
+                        pass
 
                 payload = {
                     "username": username,
@@ -295,9 +339,13 @@ class AuthService:
                 if not verify_password(password, user_data.get("password_hash", "")):
                     return False, "Senha incorreta"
 
+                ensured_user_id = self._ensure_auth_has_user_id(user_data) or user_data.get("user_id")
+                if not ensured_user_id:
+                    return False, "Usuário autenticado, mas sem vínculo com tabela usuarios. Verifique se a tabela usuarios existe e se o Supabase está aceitando inserts/selects."
+
                 st.session_state.authenticated = True
                 st.session_state.username = username
-                st.session_state.user_id = user_data.get("user_id", username)
+                st.session_state.user_id = ensured_user_id
                 st.session_state.user_name = user_data.get("nome", username)
                 st.session_state.user_email = user_data.get("email", "")
 
