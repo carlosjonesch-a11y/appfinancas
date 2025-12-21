@@ -349,17 +349,49 @@ def render_transacoes_recentes(transacoes: List[Dict]):
 
     df = pd.DataFrame(rows)
 
+    def _format_brl(value: float) -> str:
+        try:
+            return f"R$ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "R$ 0,00"
+
+    def _format_date(value) -> str:
+        try:
+            if pd.isna(value):
+                return ""
+        except Exception:
+            pass
+        try:
+            if isinstance(value, (datetime, date)):
+                return value.strftime("%d/%m/%Y")
+        except Exception:
+            pass
+        return str(value) if value is not None else ""
+
+    def _style_row(row: pd.Series):
+        is_receita = str(row.get("Tipo", "")).lower().strip() == "receita"
+        color = "#10b981" if is_receita else "#ef4444"
+        styles = []
+        for col in row.index:
+            if col in ("Tipo", "Valor"):
+                styles.append(f"color: {color}; font-weight: 700")
+            else:
+                styles.append("")
+        return styles
+
+    styler = (
+        df.style
+        .format({
+            "Data": _format_date,
+            "Valor": _format_brl,
+        })
+        .apply(_style_row, axis=1)
+    )
+
     st.dataframe(
-        df,
+        styler,
         hide_index=True,
         use_container_width=True,
-        column_config={
-            "Data": st.column_config.DateColumn("Data", format="DD/MM/YYYY"),
-            "Descrição": st.column_config.TextColumn("Descrição"),
-            "Categoria": st.column_config.TextColumn("Categoria"),
-            "Tipo": st.column_config.TextColumn("Tipo"),
-            "Valor": st.column_config.NumberColumn("Valor", format="R$ %.2f"),
-        },
     )
 
 
