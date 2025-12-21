@@ -3,15 +3,28 @@
 -- ===========================================
 -- Execute este script no SQL Editor do Supabase se a tabela categorias já existe
 
+-- Extensões (seguro rodar mais de uma vez)
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- Adicionar coluna updated_at à tabela categorias
 ALTER TABLE categorias 
 ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 
 -- Criar trigger para atualizar updated_at automaticamente
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+DROP TRIGGER IF EXISTS update_categorias_updated_at ON categorias;
+
 CREATE TRIGGER update_categorias_updated_at
-    BEFORE UPDATE ON categorias
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+BEFORE UPDATE ON categorias
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
 
 -- Atualizar valores existentes
 UPDATE categorias SET updated_at = created_at WHERE updated_at IS NULL;
