@@ -204,8 +204,8 @@ def ensure_single_user_session() -> bool:
         st.session_state.user_name = user.get("nome") or nome
         st.session_state.user_email = user.get("email") or email
         return True
-    except Exception:
-        st.error("Erro ao inicializar o usuário único.")
+    except Exception as e:
+        st.error(f"Erro ao inicializar o usuário único: {e}")
         return False
 
 # ==================== NAVEGAÇÃO ====================

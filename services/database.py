@@ -178,12 +178,16 @@ class DatabaseService:
     def __init__(self):
         if not hasattr(self, "_local_db"):
             backend = (Config.STORAGE_BACKEND or "local").strip().lower()
+            print(f"ℹ️ STORAGE_BACKEND={backend}")
             if backend == "gsheets":
                 try:
                     try:
                         import streamlit as st
                     except Exception:
                         st = None
+
+                    if not (Config.GOOGLE_SHEETS_SPREADSHEET_ID or "").strip():
+                        raise RuntimeError("GOOGLE_SHEETS_SPREADSHEET_ID não está definido")
 
                     from services.gsheets_backend import load_service_account_info_from_env_or_secrets
 
@@ -192,9 +196,18 @@ class DatabaseService:
                         spreadsheet_id_or_url=Config.GOOGLE_SHEETS_SPREADSHEET_ID,
                         service_account_info=service_account_info,
                     )
+                    print("✅ Google Sheets inicializado com sucesso")
                 except Exception as e:
-                    print("⚠️ Falha ao inicializar Google Sheets; usando storage local. Erro:", e)
-                    self._local_db = LocalDatabase()
+                    msg = (
+                        "Falha ao inicializar Google Sheets.\n"
+                        "- Confirme STORAGE_BACKEND=gsheets\n"
+                        "- Confirme GOOGLE_SHEETS_SPREADSHEET_ID\n"
+                        "- Em Secrets, defina gcp_service_account (service account JSON)\n"
+                        "- Compartilhe a planilha com o client_email do service account (Editor)\n"
+                        f"Erro: {e}"
+                    )
+                    print("❌ " + msg)
+                    raise RuntimeError(msg)
             else:
                 self._local_db = LocalDatabase()
 
