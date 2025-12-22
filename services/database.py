@@ -180,6 +180,13 @@ class SupabaseRelationalDatabase:
                     rr = dict(r)
                     rr.pop("categorias", None)
                     rr.pop("contas", None)
+
+                    # Não envie timestamps para o Postgres.
+                    # Motivo: se o cliente mandar updated_at=None, o default não é aplicado e estoura NOT NULL.
+                    # Além disso, o banco já tem default + trigger para manter esses campos.
+                    rr.pop("created_at", None)
+                    rr.pop("updated_at", None)
+
                     sanitized.append(rr)
 
                 # Upsert (PK id)
@@ -220,39 +227,41 @@ class DatabaseService:
     """
 
     def __init__(self, *, access_token: str | None = None):
-        backend = (Config.STORAGE_BACKEND or "local").strip().lower()
+        backend = (Config.STORAGE_BACKEND or "supabase").strip().lower()
         print(f"ℹ️ STORAGE_BACKEND={backend}")
 
-        if backend == "supabase":
-            try:
-                supabase_url = getattr(Config, "SUPABASE_URL", "")
+        if backend != "supabase":
+            raise RuntimeError(
+                "Backend local (JSON em data/) foi desativado. Configure STORAGE_BACKEND=supabase e defina SUPABASE_URL/SUPABASE_ANON_KEY."
+            )
 
-                # Se houver token do usuário, usamos ANON key (RLS). Sem token, usamos SUPABASE_KEY (service role).
-                if access_token:
-                    supabase_key = getattr(Config, "SUPABASE_ANON_KEY", "") or getattr(Config, "SUPABASE_KEY", "")
-                else:
-                    supabase_key = getattr(Config, "SUPABASE_KEY", "")
+        try:
+            supabase_url = getattr(Config, "SUPABASE_URL", "")
 
-                self._local_db = SupabaseRelationalDatabase(
-                    supabase_url=supabase_url,
-                    supabase_key=supabase_key,
-                    access_token=access_token,
-                )
-                print("✅ Supabase inicializado com sucesso")
-            except Exception as e:
-                msg = (
-                    "Falha ao inicializar Supabase.\n"
-                    "- Confirme STORAGE_BACKEND=supabase\n"
-                    "- Confirme SUPABASE_URL\n"
-                    "- Para multiusuário (RLS): SUPABASE_ANON_KEY em Secrets\n"
-                    "- Para modo admin/seed: SUPABASE_KEY (service_role) em Secrets\n"
-                    "- Confirme que executou o SQL de setup relacional (supabase_setup.sql)\n"
-                    f"Erro: {type(e).__name__}: {e}"
-                )
-                print("❌ " + msg)
-                raise RuntimeError(msg) from e
-        else:
-            self._local_db = LocalDatabase()
+            # Se houver token do usuário, usamos ANON key (RLS). Sem token, usamos SUPABASE_KEY (service role).
+            if access_token:
+                supabase_key = getattr(Config, "SUPABASE_ANON_KEY", "") or getattr(Config, "SUPABASE_KEY", "")
+            else:
+                supabase_key = getattr(Config, "SUPABASE_KEY", "")
+
+            self._local_db = SupabaseRelationalDatabase(
+                supabase_url=supabase_url,
+                supabase_key=supabase_key,
+                access_token=access_token,
+            )
+            print("✅ Supabase inicializado com sucesso")
+        except Exception as e:
+            msg = (
+                "Falha ao inicializar Supabase.\n"
+                "- Confirme STORAGE_BACKEND=supabase\n"
+                "- Confirme SUPABASE_URL\n"
+                "- Para multiusuário (RLS): SUPABASE_ANON_KEY em Secrets\n"
+                "- Para modo admin/seed: SUPABASE_KEY (service_role) em Secrets\n"
+                "- Confirme que executou o SQL de setup relacional (supabase_setup.sql)\n"
+                f"Erro: {type(e).__name__}: {e}"
+            )
+            print("❌ " + msg)
+            raise RuntimeError(msg) from e
 
     @property
     def is_connected(self) -> bool:
@@ -260,7 +269,7 @@ class DatabaseService:
 
     @property
     def is_local(self) -> bool:
-        return (Config.STORAGE_BACKEND or "local").strip().lower() != "supabase"
+        return False
 
     # ==================== USUÁRIOS ====================
 

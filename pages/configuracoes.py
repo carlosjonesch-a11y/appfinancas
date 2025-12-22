@@ -30,18 +30,14 @@ def render_configuracoes_page():
     st.header("⚙️ Configurações e Ferramentas")
 
     # Status da persistência
-    backend = (getattr(Config, "STORAGE_BACKEND", "local") or "local").strip().lower()
-    if backend == "supabase":
-        url = (getattr(Config, "SUPABASE_URL", "") or "").strip()
-        hint = "(vazio)"
-        if url:
-            try:
-                hint = url.split("//", 1)[-1][:24]
-            except Exception:
-                hint = url[:24]
-        st.info(f"Persistência ativa: Supabase ({hint}...)")
-    else:
-        st.info("Persistência ativa: LOCAL")
+    url = (getattr(Config, "SUPABASE_URL", "") or "").strip()
+    hint = "(vazio)"
+    if url:
+        try:
+            hint = url.split("//", 1)[-1][:24]
+        except Exception:
+            hint = url[:24]
+    st.info(f"Persistência ativa: Supabase ({hint}...)")
     
     # --- Ferramentas de Desenvolvimento ---
     st.subheader("🛠️ Ferramentas de Desenvolvimento")

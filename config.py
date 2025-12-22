@@ -48,9 +48,8 @@ class Config:
     SINGLE_USER_NAME = _get_secret("SINGLE_USER_NAME", "Usuário")
 
     # Persistência
-    # local: JSON em data/ (dev)
-    # supabase: Postgres via Supabase
-    STORAGE_BACKEND = _get_secret("STORAGE_BACKEND", "local").strip().lower()
+    # supabase: Postgres via Supabase (modo oficial)
+    STORAGE_BACKEND = _get_secret("STORAGE_BACKEND", "supabase").strip().lower()
 
     # Supabase
     SUPABASE_URL = _get_secret("SUPABASE_URL", "").strip()

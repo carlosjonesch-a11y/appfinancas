@@ -226,13 +226,13 @@ def _clear_supabase_session() -> None:
 def ensure_user_session() -> bool:
     """Garante que existe um usuário na sessão.
 
-    - local: cria usuário único (sem auth)
     - supabase: exige login via Supabase Auth (JWT na sessão)
     """
 
-    backend = (Config.STORAGE_BACKEND or "local").strip().lower()
+    backend = (Config.STORAGE_BACKEND or "supabase").strip().lower()
     if backend != "supabase":
-        return ensure_single_user_session()
+        st.error("Este app está configurado para operar somente com Supabase. Defina STORAGE_BACKEND=supabase nos Secrets.")
+        return False
 
     if st.session_state.get("supabase_access_token") and st.session_state.get("user_id"):
         return True
@@ -245,7 +245,7 @@ def ensure_user_session() -> bool:
         key = (getattr(Config, "SUPABASE_ANON_KEY", "") or getattr(Config, "SUPABASE_KEY", "") or "").strip()
         safe_prefix = key[:6] + "..." if key else "(vazio)"
         safe_suffix = "..." + key[-4:] if len(key) >= 8 else ""
-        st.write(f"STORAGE_BACKEND: {getattr(Config, 'STORAGE_BACKEND', 'local')}")
+        st.write(f"STORAGE_BACKEND: {getattr(Config, 'STORAGE_BACKEND', 'supabase')}")
         st.write(f"SUPABASE_URL: {url or '(vazio)'}")
         st.write(f"SUPABASE_ANON_KEY: len={len(key)} prefix={safe_prefix}{safe_suffix}")
         st.caption("A chave não é exibida por completo por segurança.")

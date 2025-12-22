@@ -9,7 +9,7 @@ Aplicativo de gestão financeira pessoal com leitura automática de cupons fisca
 - 🤖 **Lançamento automático** - Importação direta dos itens do cupom
 - ✏️ **Lançamento semi-automático** - Revise antes de salvar
 - 🏷️ **Categorização inteligente** - Sugestão automática de categorias
-- 👤 **Usuário único** - Foco em uso pessoal (sem login)
+- 👤 **Multiusuário** - Login por email/senha (Supabase Auth) com isolamento por usuário (RLS)
 - 📱 **Interface responsiva** - Funciona no celular e desktop
 
 ## 🚀 Instalação
@@ -62,7 +62,7 @@ app finanças/
 ├── .env.example          # Exemplo de variáveis de ambiente
 ├── .gitignore
 ├── README.md
-├── data/                  # Opcional (dev local); não versionado
+├── data/                  # Não utilizado (sem persistência local)
 ├── models/
 │   └── __init__.py       # Modelos de dados
 ├── pages/
@@ -119,7 +119,6 @@ app finanças/
 
 Observações importantes:
 - Com `STORAGE_BACKEND=supabase`, seus dados ficam persistidos no Supabase.
-- Arquivos locais em `data/` não são persistentes no Streamlit Cloud.
 - No modo Supabase, o app pede login (email/senha) e isola os dados por usuário via RLS.
 
 ## 🧪 Popular dados de exemplo (Supabase)

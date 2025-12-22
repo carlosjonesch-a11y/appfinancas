@@ -34,7 +34,7 @@ wheels/
 # Credenciais locais (não versionar)
 data/credentials.yaml
 
-# Dados locais (não versionar; persistência oficial via Google Sheets)
+# Dados locais (não versionar; persistência oficial via Supabase)
 data/*.json
 
 # Arquivo auxiliar local (de outro projeto)
