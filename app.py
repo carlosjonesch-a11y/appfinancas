@@ -240,6 +240,16 @@ def ensure_user_session() -> bool:
     st.title(Config.APP_NAME)
     st.subheader("Entrar")
 
+    with st.expander("Diagnóstico (Supabase)"):
+        url = (getattr(Config, "SUPABASE_URL", "") or "").strip()
+        key = (getattr(Config, "SUPABASE_ANON_KEY", "") or getattr(Config, "SUPABASE_KEY", "") or "").strip()
+        safe_prefix = key[:6] + "..." if key else "(vazio)"
+        safe_suffix = "..." + key[-4:] if len(key) >= 8 else ""
+        st.write(f"STORAGE_BACKEND: {getattr(Config, 'STORAGE_BACKEND', 'local')}")
+        st.write(f"SUPABASE_URL: {url or '(vazio)'}")
+        st.write(f"SUPABASE_ANON_KEY: len={len(key)} prefix={safe_prefix}{safe_suffix}")
+        st.caption("A chave não é exibida por completo por segurança.")
+
     tab_login, tab_signup = st.tabs(["Entrar", "Criar conta"])
 
     with tab_login:
@@ -271,7 +281,18 @@ def ensure_user_session() -> bool:
 
                 st.rerun()
             except Exception as e:
-                st.error(str(e))
+                msg = str(e)
+                if "Invalid API key" in msg:
+                    st.error("Invalid API key. Confira SUPABASE_URL e SUPABASE_ANON_KEY nos Secrets (mesmo projeto).")
+                    st.info(
+                        "Checklist rápido:\n"
+                        "- SUPABASE_URL deve ser https://<ref>.supabase.co\n"
+                        "- SUPABASE_ANON_KEY deve começar com 'eyJ' (JWT)\n"
+                        "- Não use placeholder tipo <anon_public_key>\n"
+                        "- URL e key precisam ser do mesmo projeto\n"
+                    )
+                else:
+                    st.error(msg)
 
     with tab_signup:
         nome = st.text_input("Nome (opcional)", key="signup_nome")
@@ -303,7 +324,18 @@ def ensure_user_session() -> bool:
 
                 st.rerun()
             except Exception as e:
-                st.error(str(e))
+                msg = str(e)
+                if "Invalid API key" in msg:
+                    st.error("Invalid API key. Confira SUPABASE_URL e SUPABASE_ANON_KEY nos Secrets (mesmo projeto).")
+                    st.info(
+                        "Checklist rápido:\n"
+                        "- SUPABASE_URL deve ser https://<ref>.supabase.co\n"
+                        "- SUPABASE_ANON_KEY deve começar com 'eyJ' (JWT)\n"
+                        "- Não use placeholder tipo <anon_public_key>\n"
+                        "- URL e key precisam ser do mesmo projeto\n"
+                    )
+                else:
+                    st.error(msg)
 
     st.stop()
 
