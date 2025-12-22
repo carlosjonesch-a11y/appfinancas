@@ -9,6 +9,13 @@ def _get_anon_key() -> str:
     return (getattr(Config, "SUPABASE_ANON_KEY", "") or getattr(Config, "SUPABASE_KEY", "")).strip()
 
 
+def _looks_like_jwt(token: str) -> bool:
+    s = (token or "").strip()
+    # Supabase keys (anon/service_role) são JWTs.
+    # Validação simples para evitar placeholders tipo "<anon_public_key>".
+    return s.count(".") == 2 and len(s) > 40
+
+
 def create_auth_client():
     try:
         from supabase import create_client
@@ -21,6 +28,12 @@ def create_auth_client():
         raise RuntimeError("SUPABASE_URL não está definido")
     if not key:
         raise RuntimeError("SUPABASE_ANON_KEY não está definido")
+
+    if not _looks_like_jwt(key):
+        raise RuntimeError(
+            "SUPABASE_ANON_KEY inválida. Use a chave ANON (public) do seu projeto em Project Settings → API. "
+            "Ela normalmente começa com 'eyJ' e contém dois pontos '.' (formato JWT)."
+        )
     return create_client(url, key)
 
 
