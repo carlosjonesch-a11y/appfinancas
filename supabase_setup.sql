@@ -27,6 +27,12 @@ create table if not exists public.usuarios (
   updated_at timestamptz not null default now()
 );
 
+-- Garante defaults mesmo se a tabela já existia
+alter table public.usuarios alter column created_at set default now();
+alter table public.usuarios alter column updated_at set default now();
+alter table public.usuarios alter column created_at set not null;
+alter table public.usuarios alter column updated_at set not null;
+
 drop trigger if exists trg_usuarios_updated_at on public.usuarios;
 create trigger trg_usuarios_updated_at
 before update on public.usuarios
@@ -45,6 +51,11 @@ create table if not exists public.categorias (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.categorias alter column created_at set default now();
+alter table public.categorias alter column updated_at set default now();
+alter table public.categorias alter column created_at set not null;
+alter table public.categorias alter column updated_at set not null;
 create index if not exists idx_categorias_user_id on public.categorias(user_id);
 create index if not exists idx_categorias_user_tipo on public.categorias(user_id, tipo);
 
@@ -69,6 +80,11 @@ create table if not exists public.contas (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.contas alter column created_at set default now();
+alter table public.contas alter column updated_at set default now();
+alter table public.contas alter column created_at set not null;
+alter table public.contas alter column updated_at set not null;
 create index if not exists idx_contas_user_id on public.contas(user_id);
 
 drop trigger if exists trg_contas_updated_at on public.contas;
@@ -92,6 +108,11 @@ create table if not exists public.transacoes_recorrentes (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.transacoes_recorrentes alter column created_at set default now();
+alter table public.transacoes_recorrentes alter column updated_at set default now();
+alter table public.transacoes_recorrentes alter column created_at set not null;
+alter table public.transacoes_recorrentes alter column updated_at set not null;
 create index if not exists idx_recorrentes_user_id on public.transacoes_recorrentes(user_id);
 
 drop trigger if exists trg_recorrentes_updated_at on public.transacoes_recorrentes;
@@ -119,6 +140,11 @@ create table if not exists public.transacoes (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.transacoes alter column created_at set default now();
+alter table public.transacoes alter column updated_at set default now();
+alter table public.transacoes alter column created_at set not null;
+alter table public.transacoes alter column updated_at set not null;
 create index if not exists idx_transacoes_user_data on public.transacoes(user_id, data desc);
 create index if not exists idx_transacoes_user_tipo on public.transacoes(user_id, tipo);
 create index if not exists idx_transacoes_user_categoria on public.transacoes(user_id, categoria_id);
@@ -143,6 +169,11 @@ create table if not exists public.orcamentos (
   updated_at timestamptz not null default now(),
   unique (user_id, categoria_id)
 );
+
+alter table public.orcamentos alter column created_at set default now();
+alter table public.orcamentos alter column updated_at set default now();
+alter table public.orcamentos alter column created_at set not null;
+alter table public.orcamentos alter column updated_at set not null;
 create index if not exists idx_orcamentos_user_id on public.orcamentos(user_id);
 
 drop trigger if exists trg_orcamentos_updated_at on public.orcamentos;
@@ -161,6 +192,11 @@ create table if not exists public.investimentos (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.investimentos alter column created_at set default now();
+alter table public.investimentos alter column updated_at set default now();
+alter table public.investimentos alter column created_at set not null;
+alter table public.investimentos alter column updated_at set not null;
 create index if not exists idx_investimentos_user_id on public.investimentos(user_id);
 
 drop trigger if exists trg_investimentos_updated_at on public.investimentos;
@@ -182,6 +218,11 @@ create table if not exists public.investimentos_saldos (
   updated_at timestamptz not null default now(),
   unique (user_id, investimento_id, data_referencia)
 );
+
+alter table public.investimentos_saldos alter column created_at set default now();
+alter table public.investimentos_saldos alter column updated_at set default now();
+alter table public.investimentos_saldos alter column created_at set not null;
+alter table public.investimentos_saldos alter column updated_at set not null;
 create index if not exists idx_investimentos_saldos_user_id on public.investimentos_saldos(user_id);
 create index if not exists idx_investimentos_saldos_inv_data on public.investimentos_saldos(investimento_id, data_referencia);
 
