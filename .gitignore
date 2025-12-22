@@ -40,8 +40,7 @@ data/*.json
 # Arquivo auxiliar local (de outro projeto)
 google_sheets_manager.py
 
-# Chaves de Service Account (NUNCA versionar)
-phrasal-catwalk-255413-ada5ef399a37.json
+# Chaves/credenciais (NUNCA versionar)
 *service_account*.json
 *service-account*.json
 

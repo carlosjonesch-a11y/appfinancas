@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from config import Config
 from services.database import db
+from services.supabase_auth import sign_in_with_password, sign_up, sign_out
 from pages.dashboard import render_dashboard_page, render_widget_resumo_lateral
 from pages.transacoes import render_transacoes_page, render_nova_transacao_page
 from pages.categorias import render_categorias_page
@@ -208,6 +209,104 @@ def ensure_single_user_session() -> bool:
         st.error(f"Erro ao inicializar o usuário único: {e}")
         return False
 
+
+def _clear_supabase_session() -> None:
+    for k in [
+        "supabase_access_token",
+        "supabase_refresh_token",
+        "user_id",
+        "user_name",
+        "user_email",
+        "_db_instance",
+        "_db_access_token",
+    ]:
+        st.session_state.pop(k, None)
+
+
+def ensure_user_session() -> bool:
+    """Garante que existe um usuário na sessão.
+
+    - local: cria usuário único (sem auth)
+    - supabase: exige login via Supabase Auth (JWT na sessão)
+    """
+
+    backend = (Config.STORAGE_BACKEND or "local").strip().lower()
+    if backend != "supabase":
+        return ensure_single_user_session()
+
+    if st.session_state.get("supabase_access_token") and st.session_state.get("user_id"):
+        return True
+
+    st.title(Config.APP_NAME)
+    st.subheader("Entrar")
+
+    tab_login, tab_signup = st.tabs(["Entrar", "Criar conta"])
+
+    with tab_login:
+        email = st.text_input("Email", key="login_email")
+        password = st.text_input("Senha", type="password", key="login_password")
+        if st.button("Entrar", type="primary", use_container_width=True):
+            try:
+                info = sign_in_with_password(email=email, password=password)
+                st.session_state.supabase_access_token = info.get("access_token")
+                st.session_state.supabase_refresh_token = info.get("refresh_token")
+                st.session_state.user_id = info.get("user_id")
+                st.session_state.user_email = info.get("email")
+                st.session_state.user_name = (info.get("email") or "").split("@")[0] or "Usuário"
+
+                try:
+                    db.upsert_usuario_profile(
+                        user_id=str(st.session_state.user_id),
+                        email=str(st.session_state.user_email or ""),
+                        nome=str(st.session_state.user_name or "Usuário"),
+                    )
+                except Exception:
+                    pass
+
+                try:
+                    if not db.listar_categorias(user_id=str(st.session_state.user_id), include_inactive=False):
+                        db.criar_categorias_padrao(user_id=str(st.session_state.user_id))
+                except Exception:
+                    pass
+
+                st.rerun()
+            except Exception as e:
+                st.error(str(e))
+
+    with tab_signup:
+        nome = st.text_input("Nome (opcional)", key="signup_nome")
+        email = st.text_input("Email", key="signup_email")
+        password = st.text_input("Senha", type="password", key="signup_password")
+        if st.button("Criar conta", type="primary", use_container_width=True):
+            try:
+                info = sign_up(email=email, password=password)
+
+                # Se o projeto exigir confirmação de email, o Supabase pode não retornar session.
+                if not info.get("access_token"):
+                    st.success("Conta criada. Se precisar confirmar email, confirme e depois faça login.")
+                    st.stop()
+
+                st.session_state.supabase_access_token = info.get("access_token")
+                st.session_state.supabase_refresh_token = info.get("refresh_token")
+                st.session_state.user_id = info.get("user_id")
+                st.session_state.user_email = info.get("email")
+                st.session_state.user_name = (nome or "").strip() or (email.split("@")[0] if email else "Usuário")
+
+                try:
+                    db.upsert_usuario_profile(
+                        user_id=str(st.session_state.user_id),
+                        email=str(st.session_state.user_email or ""),
+                        nome=str(st.session_state.user_name or "Usuário"),
+                    )
+                except Exception:
+                    pass
+
+                st.rerun()
+            except Exception as e:
+                st.error(str(e))
+
+    st.stop()
+
 # ==================== NAVEGAÇÃO ====================
 
 def render_sidebar():
@@ -383,7 +482,7 @@ def render_sidebar():
         
         st.markdown("---")
         
-        # Info do usuário (modo usuário único)
+        # Info do usuário
         nome = st.session_state.get("user_name") or "Usuário"
         email = st.session_state.get("user_email") or ""
 
@@ -398,6 +497,16 @@ def render_sidebar():
             unsafe_allow_html=True,
         )
         st.markdown('</div>', unsafe_allow_html=True)
+
+        backend = (Config.STORAGE_BACKEND or "local").strip().lower()
+        if backend == "supabase":
+            if st.button("Sair", use_container_width=True):
+                try:
+                    sign_out(st.session_state.get("supabase_access_token"))
+                except Exception:
+                    pass
+                _clear_supabase_session()
+                st.rerun()
         
         return pagina
 
@@ -405,8 +514,7 @@ def render_sidebar():
 def main():
     """Função principal do aplicativo"""
 
-    # Modo sem autenticação (usuário único)
-    if not ensure_single_user_session():
+    if not ensure_user_session():
         return
     
     # Renderizar sidebar e obter página selecionada

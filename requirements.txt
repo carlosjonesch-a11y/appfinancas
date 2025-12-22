@@ -27,6 +27,5 @@ openpyxl>=3.1.2
 # OFX (cartão)
 ofxparse>=0.21
 
-# Google Sheets (opcional: persistência remota)
-gspread>=6.1.0
-google-auth>=2.25.0
+# Supabase (persistência remota)
+supabase>=2.6.0

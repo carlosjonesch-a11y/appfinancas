@@ -31,15 +31,17 @@ def render_configuracoes_page():
 
     # Status da persistência
     backend = (getattr(Config, "STORAGE_BACKEND", "local") or "local").strip().lower()
-    if backend == "gsheets":
-        sid = (getattr(Config, "GOOGLE_SHEETS_SPREADSHEET_ID", "") or "").strip()
-        sid_hint = (sid[-6:] if len(sid) >= 6 else sid) or "(vazio)"
-        st.info(f"Persistência ativa: Google Sheets (id termina com: {sid_hint})")
+    if backend == "supabase":
+        url = (getattr(Config, "SUPABASE_URL", "") or "").strip()
+        hint = "(vazio)"
+        if url:
+            try:
+                hint = url.split("//", 1)[-1][:24]
+            except Exception:
+                hint = url[:24]
+        st.info(f"Persistência ativa: Supabase ({hint}...)")
     else:
-        st.warning(
-            "Persistência ativa: LOCAL (não persistente no Streamlit Cloud). "
-            "Para usar Google Sheets, configure STORAGE_BACKEND=gsheets e GOOGLE_SHEETS_SPREADSHEET_ID em Secrets."
-        )
+        st.info("Persistência ativa: LOCAL")
     
     # --- Ferramentas de Desenvolvimento ---
     st.subheader("🛠️ Ferramentas de Desenvolvimento")

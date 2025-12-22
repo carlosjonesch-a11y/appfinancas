@@ -112,25 +112,24 @@ app finanças/
    - **Main file path**: `app.py`
 4. Em **App settings → Secrets**, cole:
    - `APP_NAME`, `DEBUG`
-   - `SINGLE_USER_EMAIL`, `SINGLE_USER_NAME`
-   - `STORAGE_BACKEND = "gsheets"`
-   - `GOOGLE_SHEETS_SPREADSHEET_ID = "<id ou url>"`
-   - `gcp_service_account` (o JSON do service account)
+   - `STORAGE_BACKEND = "supabase"`
+   - `SUPABASE_URL = "https://<seu-projeto>.supabase.co"`
+   - `SUPABASE_ANON_KEY = "<anon_public_key>"`
 5. Deploy.
 
 Observações importantes:
-- Com `STORAGE_BACKEND=gsheets`, seus dados ficam persistidos no Google Sheets.
+- Com `STORAGE_BACKEND=supabase`, seus dados ficam persistidos no Supabase.
 - Arquivos locais em `data/` não são persistentes no Streamlit Cloud.
+- No modo Supabase, o app pede login (email/senha) e isola os dados por usuário via RLS.
 
-## 🧪 Popular dados de exemplo (Google Sheets)
+## 🧪 Popular dados de exemplo (Supabase)
 
-Para popular sua planilha com dados de exemplo, rode localmente apontando o backend para `gsheets`.
-
-1. Crie `.streamlit/secrets.toml` (não versionado) com:
-   - `STORAGE_BACKEND = "gsheets"`
-   - `GOOGLE_SHEETS_SPREADSHEET_ID = "<id>"`
-   - `[gcp_service_account]` (JSON do service account)
-2. Rode o script:
+1. No Supabase, execute o SQL de setup do arquivo `supabase_setup.sql`.
+2. Crie `.streamlit/secrets.toml` (não versionado) com:
+   - `STORAGE_BACKEND = "supabase"`
+   - `SUPABASE_URL = "https://<seu-projeto>.supabase.co"`
+   - `SUPABASE_KEY = "<service_role_key>"`
+3. Rode o script:
 ```bash
 python scripts/popular_banco.py popular
 ```

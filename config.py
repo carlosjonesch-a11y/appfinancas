@@ -2,14 +2,19 @@
 Configurações do aplicativo de Finanças Pessoais
 """
 import os
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
 try:
     import streamlit as st
 except Exception:
     st = None
 
-load_dotenv()
+if load_dotenv is not None:
+    load_dotenv()
 
 
 def _get_secret(key: str, default: str = "") -> str:
@@ -43,13 +48,16 @@ class Config:
     SINGLE_USER_NAME = _get_secret("SINGLE_USER_NAME", "Usuário")
 
     # Persistência
-    # local: JSON em data/
-    # gsheets: Google Sheets (requer Secrets + Service Account)
+    # local: JSON em data/ (dev)
+    # supabase: Postgres via Supabase
     STORAGE_BACKEND = _get_secret("STORAGE_BACKEND", "local").strip().lower()
 
-    # Google Sheets
-    # Aceita ID puro ou URL do Sheets; o backend extrai o ID quando necessário.
-    GOOGLE_SHEETS_SPREADSHEET_ID = _get_secret("GOOGLE_SHEETS_SPREADSHEET_ID", "").strip()
+    # Supabase
+    SUPABASE_URL = _get_secret("SUPABASE_URL", "").strip()
+    # Para modo por usuário (Auth + RLS), use a ANON KEY.
+    # Mantemos compatibilidade com SUPABASE_KEY como fallback.
+    SUPABASE_ANON_KEY = _get_secret("SUPABASE_ANON_KEY", "").strip()
+    SUPABASE_KEY = _get_secret("SUPABASE_KEY", "").strip()
     
     # Categorias padrão
     CATEGORIAS_PADRAO = {

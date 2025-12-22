@@ -1,18 +1,25 @@
 """Serviço de persistência do app.
 
-Este projeto foi simplificado para rodar sem autenticação.
+O app suporta:
+- Modo local (usuário único, sem autenticação)
+- Modo Supabase (multiusuário via Supabase Auth + RLS)
 
 Backends suportados:
-- local: arquivos JSON em `data/`
-- gsheets: Google Sheets (Service Account)
+- local: arquivos JSON em `data/` (útil só para desenvolvimento local)
+- supabase: Postgres relacional no Supabase (tabelas normalizadas)
 
 Seleção via env/secrets:
-- STORAGE_BACKEND=local|gsheets
-- GOOGLE_SHEETS_SPREADSHEET_ID=<id ou url>
+- STORAGE_BACKEND=local|supabase
 
-Credenciais (gsheets):
-- st.secrets["gcp_service_account"] (recomendado no Streamlit Cloud)
-    ou GOOGLE_SERVICE_ACCOUNT_JSON (string JSON)
+Credenciais (supabase):
+- SUPABASE_URL
+- SUPABASE_ANON_KEY (recomendado para multiusuário com RLS)
+- SUPABASE_KEY (opcional: Service Role Key para tarefas administrativas/seed)
+
+Modelo de dados (supabase):
+Tabelas relacionais (veja `supabase_setup.sql`).
+Para preservar o código existente, o backend expõe um read/write por “arquivo”
+que lê/escreve nas tabelas correspondentes.
 """
 
 from __future__ import annotations
@@ -73,11 +80,41 @@ class LocalDatabase:
         return str(uuid.uuid4())
 
 
-class GoogleSheetsDatabase:
-    """Banco de dados usando Google Sheets, mantendo a mesma interface do LocalDatabase."""
+class SupabaseRelationalDatabase:
+    """Persistência relacional no Supabase, mantendo a interface do LocalDatabase.
 
-    def __init__(self, spreadsheet_id_or_url: str, service_account_info: dict[str, Any]):
-        from services.gsheets_backend import FinanceSheetsSchema, GoogleSheetsStore, coerce_bool, coerce_float, coerce_int
+    - read(file): retorna lista de registros da tabela correspondente
+    - write(file, data): upsert em lote + remove registros ausentes (por user_id quando aplicável)
+
+    Observação: isso preserva o estilo atual do código (read/modify/write) sem exigir mudanças nas páginas.
+    """
+
+    def __init__(self, supabase_url: str, supabase_key: str, access_token: str | None = None):
+        try:
+            from supabase import create_client
+        except Exception as e:
+            raise RuntimeError(
+                "Dependência Supabase não instalada. Adicione 'supabase' no requirements.txt. Erro: " + str(e)
+            )
+
+        if not (supabase_url or "").strip():
+            raise RuntimeError("SUPABASE_URL não está definido")
+        if not (supabase_key or "").strip():
+            raise RuntimeError("Chave do Supabase não está definida (SUPABASE_ANON_KEY ou SUPABASE_KEY)")
+
+        self._client = create_client(supabase_url, supabase_key)
+
+        # Para RLS (auth.uid()) funcionar, precisamos enviar o JWT do usuário.
+        if access_token:
+            try:
+                # Versões mais novas
+                self._client.postgrest.auth(access_token)
+            except Exception:
+                try:
+                    # Fallback
+                    self._client.options.headers.update({"Authorization": f"Bearer {access_token}"})
+                except Exception:
+                    pass
 
         # "Markers" de arquivo para compatibilidade com o código existente.
         self.usuarios_file = Path("usuarios.json")
@@ -89,77 +126,91 @@ class GoogleSheetsDatabase:
         self.investimentos_file = Path("investimentos.json")
         self.investimentos_saldos_file = Path("investimentos_saldos.json")
 
-        self._store = GoogleSheetsStore(spreadsheet_id_or_url=spreadsheet_id_or_url, service_account_info=service_account_info)
-        self._coerce_bool = coerce_bool
-        self._coerce_float = coerce_float
-        self._coerce_int = coerce_int
-
-        self._schema_by_filename: dict[str, tuple[str, list[str]]] = {
-            "usuarios.json": FinanceSheetsSchema.USUARIOS,
-            "categorias.json": FinanceSheetsSchema.CATEGORIAS,
-            "contas.json": FinanceSheetsSchema.CONTAS,
-            "transacoes.json": FinanceSheetsSchema.TRANSACOES,
-            "transacoes_recorrentes.json": FinanceSheetsSchema.RECORRENTES,
-            "orcamentos.json": FinanceSheetsSchema.ORCAMENTOS,
-            "investimentos.json": FinanceSheetsSchema.INVESTIMENTOS,
-            "investimentos_saldos.json": FinanceSheetsSchema.INVESTIMENTOS_SALDOS,
+        self._table_by_filename: dict[str, str] = {
+            "usuarios.json": "usuarios",
+            "categorias.json": "categorias",
+            "contas.json": "contas",
+            "transacoes.json": "transacoes",
+            "transacoes_recorrentes.json": "transacoes_recorrentes",
+            "orcamentos.json": "orcamentos",
+            "investimentos.json": "investimentos",
+            "investimentos_saldos.json": "investimentos_saldos",
         }
 
-        for title, headers in FinanceSheetsSchema.all():
-            self._store.ensure_worksheet(title, headers=headers)
-
-    def read(self, file: Path) -> List[Dict[str, Any]]:
-        filename = Path(file).name
-        title, _headers = self._schema_by_filename[filename]
-        records = self._store.read_records(title)
-
-        # Coerções mínimas: no Sheets tudo chega como string e "False" é truthy.
-        if filename in {
-            "usuarios.json",
-            "categorias.json",
-            "contas.json",
-            "transacoes_recorrentes.json",
-            "orcamentos.json",
-            "investimentos.json",
-        }:
-            for r in records:
-                r["ativo"] = self._coerce_bool(r.get("ativo"), default=True)
-
-        if filename == "contas.json":
-            for r in records:
-                r["saldo_inicial"] = self._coerce_float(r.get("saldo_inicial"), default=0.0)
-                df = self._coerce_int(r.get("dia_fechamento"), default=0)
-                dv = self._coerce_int(r.get("dia_vencimento"), default=0)
-                r["dia_fechamento"] = df or None
-                r["dia_vencimento"] = dv or None
-
-        if filename == "transacoes.json":
-            for r in records:
-                r["valor"] = self._coerce_float(r.get("valor"), default=0.0)
-
-        if filename == "transacoes_recorrentes.json":
-            for r in records:
-                r["valor"] = self._coerce_float(r.get("valor"), default=0.0)
-                r["dia_do_mes"] = self._coerce_int(r.get("dia_do_mes"), default=1)
-
-        if filename == "orcamentos.json":
-            for r in records:
-                r["valor_limite"] = self._coerce_float(r.get("valor_limite"), default=0.0)
-
-        if filename == "investimentos_saldos.json":
-            for r in records:
-                r["saldo"] = self._coerce_float(r.get("saldo"), default=0.0)
-
-        return records
-
-    def write(self, file: Path, data: List[Dict[str, Any]]) -> None:
-        filename = Path(file).name
-        title, headers = self._schema_by_filename[filename]
-        self._store.write_records(title, headers=headers, records=data)
+        # Verificação leve: tenta consultar uma tabela base.
+        try:
+            self._client.table("usuarios").select("id").limit(1).execute()
+        except Exception as e:
+            raise RuntimeError(
+                "Falha ao acessar tabelas no Supabase. Confirme que executou supabase_setup.sql e que a key tem permissão. "
+                f"Erro: {type(e).__name__}: {e}"
+            )
 
     @staticmethod
     def generate_id() -> str:
         return str(uuid.uuid4())
+
+    def _table_for_file(self, file: Path) -> str:
+        filename = Path(file).name
+        if filename not in self._table_by_filename:
+            raise ValueError(f"Arquivo não mapeado para tabela: {filename}")
+        return self._table_by_filename[filename]
+
+    def read(self, file: Path) -> List[Dict[str, Any]]:
+        table = self._table_for_file(file)
+        try:
+            res = self._client.table(table).select("*").execute()
+            rows = getattr(res, "data", None) or []
+            return rows if isinstance(rows, list) else []
+        except Exception as e:
+            raise RuntimeError(f"Falha ao ler tabela '{table}'. Erro: {type(e).__name__}: {e}")
+
+    def write(self, file: Path, data: List[Dict[str, Any]]) -> None:
+        table = self._table_for_file(file)
+        rows = data if isinstance(data, list) else []
+
+        # Upsert em lote
+        try:
+            if rows:
+                # Evita enviar colunas aninhadas/derivadas por acidente.
+                sanitized: List[Dict[str, Any]] = []
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    rr = dict(r)
+                    rr.pop("categorias", None)
+                    rr.pop("contas", None)
+                    sanitized.append(rr)
+
+                # Upsert (PK id)
+                # Em datasets pequenos, um upsert único é suficiente.
+                self._client.table(table).upsert(sanitized).execute()
+
+            # Remoção de registros ausentes
+            # Para tabelas com user_id, removemos por usuário (evita apagar dados de outros usuários).
+            if table == "usuarios":
+                return
+
+            # Agrupa ids por user_id
+            ids_by_user: Dict[str, List[str]] = {}
+            for r in rows:
+                if not isinstance(r, dict):
+                    continue
+                uid = str(r.get("user_id") or "").strip()
+                rid = str(r.get("id") or "").strip()
+                if not uid or not rid:
+                    continue
+                ids_by_user.setdefault(uid, []).append(rid)
+
+            # Se não houver user_id, não tenta deletar (segurança)
+            if not ids_by_user:
+                return
+
+            for uid, keep_ids in ids_by_user.items():
+                # Deleta o que pertence ao usuário e não está no payload
+                self._client.table(table).delete().eq("user_id", uid).not_.in_("id", keep_ids).execute()
+        except Exception as e:
+            raise RuntimeError(f"Falha ao escrever tabela '{table}'. Erro: {type(e).__name__}: {e}")
 
 
 class DatabaseService:
@@ -168,48 +219,40 @@ class DatabaseService:
     Mantém a compatibilidade com o código existente (read/write por "arquivo").
     """
 
-    _instance: Optional["DatabaseService"] = None
+    def __init__(self, *, access_token: str | None = None):
+        backend = (Config.STORAGE_BACKEND or "local").strip().lower()
+        print(f"ℹ️ STORAGE_BACKEND={backend}")
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+        if backend == "supabase":
+            try:
+                supabase_url = getattr(Config, "SUPABASE_URL", "")
 
-    def __init__(self):
-        if not hasattr(self, "_local_db"):
-            backend = (Config.STORAGE_BACKEND or "local").strip().lower()
-            print(f"ℹ️ STORAGE_BACKEND={backend}")
-            if backend == "gsheets":
-                try:
-                    try:
-                        import streamlit as st
-                    except Exception:
-                        st = None
+                # Se houver token do usuário, usamos ANON key (RLS). Sem token, usamos SUPABASE_KEY (service role).
+                if access_token:
+                    supabase_key = getattr(Config, "SUPABASE_ANON_KEY", "") or getattr(Config, "SUPABASE_KEY", "")
+                else:
+                    supabase_key = getattr(Config, "SUPABASE_KEY", "")
 
-                    if not (Config.GOOGLE_SHEETS_SPREADSHEET_ID or "").strip():
-                        raise RuntimeError("GOOGLE_SHEETS_SPREADSHEET_ID não está definido")
-
-                    from services.gsheets_backend import load_service_account_info_from_env_or_secrets
-
-                    service_account_info = load_service_account_info_from_env_or_secrets(st.secrets if st is not None else None)
-                    self._local_db = GoogleSheetsDatabase(
-                        spreadsheet_id_or_url=Config.GOOGLE_SHEETS_SPREADSHEET_ID,
-                        service_account_info=service_account_info,
-                    )
-                    print("✅ Google Sheets inicializado com sucesso")
-                except Exception as e:
-                    msg = (
-                        "Falha ao inicializar Google Sheets.\n"
-                        "- Confirme STORAGE_BACKEND=gsheets\n"
-                        "- Confirme GOOGLE_SHEETS_SPREADSHEET_ID\n"
-                        "- Em Secrets, defina gcp_service_account (service account JSON)\n"
-                        "- Compartilhe a planilha com o client_email do service account (Editor)\n"
-                        f"Erro: {type(e).__name__}: {e}"
-                    )
-                    print("❌ " + msg)
-                    raise RuntimeError(msg) from e
-            else:
-                self._local_db = LocalDatabase()
+                self._local_db = SupabaseRelationalDatabase(
+                    supabase_url=supabase_url,
+                    supabase_key=supabase_key,
+                    access_token=access_token,
+                )
+                print("✅ Supabase inicializado com sucesso")
+            except Exception as e:
+                msg = (
+                    "Falha ao inicializar Supabase.\n"
+                    "- Confirme STORAGE_BACKEND=supabase\n"
+                    "- Confirme SUPABASE_URL\n"
+                    "- Para multiusuário (RLS): SUPABASE_ANON_KEY em Secrets\n"
+                    "- Para modo admin/seed: SUPABASE_KEY (service_role) em Secrets\n"
+                    "- Confirme que executou o SQL de setup relacional (supabase_setup.sql)\n"
+                    f"Erro: {type(e).__name__}: {e}"
+                )
+                print("❌ " + msg)
+                raise RuntimeError(msg) from e
+        else:
+            self._local_db = LocalDatabase()
 
     @property
     def is_connected(self) -> bool:
@@ -217,7 +260,7 @@ class DatabaseService:
 
     @property
     def is_local(self) -> bool:
-        return (Config.STORAGE_BACKEND or "local").strip().lower() != "gsheets"
+        return (Config.STORAGE_BACKEND or "local").strip().lower() != "supabase"
 
     # ==================== USUÁRIOS ====================
 
@@ -247,6 +290,33 @@ class DatabaseService:
             return None
         usuarios = self._local_db.read(self._local_db.usuarios_file)
         return next((u for u in usuarios if u.get("id") == uid), None)
+
+    def upsert_usuario_profile(self, user_id: str, email: str, nome: str | None = None) -> bool:
+        """Garante que exista um registro em public.usuarios para o usuário autenticado.
+
+        No modo Supabase+RLS, o id do perfil deve ser o mesmo do auth.users (auth.uid()).
+        """
+
+        try:
+            # Apenas faz sentido no Supabase; no local, o app usa criar_usuario().
+            if not isinstance(self._local_db, SupabaseRelationalDatabase):
+                return True
+
+            uid = str(user_id or "").strip()
+            if not uid:
+                return False
+
+            payload = {
+                "id": uid,
+                "email": (email or "").strip(),
+                "nome": (nome or "").strip() or (email.split("@")[0] if email else "Usuário"),
+                "ativo": True,
+            }
+            # write() em 'usuarios' faz upsert e NÃO deleta.
+            self._local_db.write(self._local_db.usuarios_file, [payload])
+            return True
+        except Exception:
+            return False
 
     # ==================== CATEGORIAS ====================
 
@@ -876,4 +946,52 @@ class DatabaseService:
         return float(total)
 
 
-db = DatabaseService()
+_fallback_db: DatabaseService | None = None
+
+
+def _get_fallback_db() -> DatabaseService:
+    global _fallback_db
+    if _fallback_db is None:
+        _fallback_db = DatabaseService()
+    return _fallback_db
+
+
+def get_db() -> DatabaseService:
+    """Retorna um DatabaseService adequado ao contexto atual.
+
+    - local: usa instância única (_fallback_db)
+    - supabase + streamlit: exige token na sessão e cria instância por usuário (RLS)
+    - supabase fora do streamlit: usa _fallback_db (tipicamente com SUPABASE_KEY)
+    """
+
+    backend = (Config.STORAGE_BACKEND or "local").strip().lower()
+    if backend != "supabase":
+        return _get_fallback_db()
+
+    try:
+        import streamlit as st
+
+        # Se session_state funciona, estamos no app e devemos exigir login.
+        token = st.session_state.get("supabase_access_token")
+        if not token:
+            raise RuntimeError("Usuário não autenticado")
+
+        cache_key = "_db_instance"
+        token_key = "_db_access_token"
+        if st.session_state.get(token_key) != token or st.session_state.get(cache_key) is None:
+            st.session_state[token_key] = token
+            st.session_state[cache_key] = DatabaseService(access_token=str(token))
+        return st.session_state[cache_key]
+    except RuntimeError:
+        raise
+    except Exception:
+        # Fora do Streamlit (scripts), cai no modo admin.
+        return _get_fallback_db()
+
+
+class _DBProxy:
+    def __getattr__(self, name: str):
+        return getattr(get_db(), name)
+
+
+db = _DBProxy()
