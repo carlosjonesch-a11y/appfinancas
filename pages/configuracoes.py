@@ -11,6 +11,7 @@ ROOT_DIR = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from services.database import db
+from config import Config
 from scripts.popular_banco import popular_dados_exemplo, limpar_dados
 
 
@@ -27,6 +28,18 @@ def render_configuracoes_page():
         return
     
     st.header("⚙️ Configurações e Ferramentas")
+
+    # Status da persistência
+    backend = (getattr(Config, "STORAGE_BACKEND", "local") or "local").strip().lower()
+    if backend == "gsheets":
+        sid = (getattr(Config, "GOOGLE_SHEETS_SPREADSHEET_ID", "") or "").strip()
+        sid_hint = (sid[-6:] if len(sid) >= 6 else sid) or "(vazio)"
+        st.info(f"Persistência ativa: Google Sheets (id termina com: {sid_hint})")
+    else:
+        st.warning(
+            "Persistência ativa: LOCAL (não persistente no Streamlit Cloud). "
+            "Para usar Google Sheets, configure STORAGE_BACKEND=gsheets e GOOGLE_SHEETS_SPREADSHEET_ID em Secrets."
+        )
     
     # --- Ferramentas de Desenvolvimento ---
     st.subheader("🛠️ Ferramentas de Desenvolvimento")
