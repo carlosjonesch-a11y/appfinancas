@@ -210,11 +210,15 @@ class DatabaseService:
             print(f"Erro ao criar categorias padrão: {e}")
             return False
     
-    def listar_categorias(self, user_id: str, tipo: str = None) -> List[Dict]:
-        """Lista categorias do usuário"""
+    def listar_categorias(self, user_id: str, tipo: str = None, include_inactive: bool = False) -> List[Dict]:
+        """Lista categorias do usuário.
+
+        Por padrão retorna apenas categorias ativas. Para incluir categorias desativadas
+        (soft delete), use include_inactive=True.
+        """
         if self._use_local:
             categorias = self._local_db._read_json(self._local_db.categorias_file)
-            resultado = [c for c in categorias if c.get("user_id") == user_id and c.get("ativo", True)]
+            resultado = [c for c in categorias if c.get("user_id") == user_id and (include_inactive or c.get("ativo", True))]
             if tipo:
                 resultado = [c for c in resultado if c.get("tipo") == tipo]
             return sorted(resultado, key=lambda x: x.get("nome", ""))
@@ -223,7 +227,9 @@ class DatabaseService:
             return []
             
         try:
-            query = self._client.table("categorias").select("*").eq("user_id", user_id).eq("ativo", True)
+            query = self._client.table("categorias").select("*").eq("user_id", user_id)
+            if not include_inactive:
+                query = query.eq("ativo", True)
             if tipo:
                 query = query.eq("tipo", tipo)
             result = query.order("nome").execute()
@@ -257,6 +263,33 @@ class DatabaseService:
             result = self._client.table("categorias").insert(data).execute()
             return result.data[0] if result.data else None
         except Exception as e:
+            # Se a categoria já existe (mesmo inativa), o UNIQUE(user_id,nome,tipo) pode bloquear.
+            # Nesse caso, reativar e retornar a categoria existente.
+            msg = str(e)
+            try:
+                if "duplicate key" in msg.lower() or "unique" in msg.lower():
+                    existente = (
+                        self._client.table("categorias")
+                        .select("*")
+                        .eq("user_id", user_id)
+                        .eq("nome", nome)
+                        .eq("tipo", tipo)
+                        .limit(1)
+                        .execute()
+                    )
+                    if existente.data:
+                        cat_id = existente.data[0].get("id")
+                        if cat_id:
+                            atualizado = (
+                                self._client.table("categorias")
+                                .update({"ativo": True, "icone": icone})
+                                .eq("id", cat_id)
+                                .execute()
+                            )
+                            return atualizado.data[0] if atualizado.data else existente.data[0]
+            except Exception:
+                pass
+
             print(f"Erro ao criar categoria: {e}")
             return None
     
@@ -554,11 +587,31 @@ class DatabaseService:
                 result = self._client.table("orcamentos").update(data).eq("id", orc_id).execute()
                 return result.data[0] if result.data else None
             else:
+                # Se existir orçamento inativo (soft delete), reativar em vez de inserir.
+                existente_inativo = (
+                    self._client.table("orcamentos")
+                    .select("id")
+                    .eq("user_id", user_id)
+                    .eq("categoria_id", categoria_id)
+                    .limit(1)
+                    .execute()
+                )
+
+                if existente_inativo.data:
+                    orc_id = existente_inativo.data[0]["id"]
+                    data = {
+                        "valor_limite": valor_limite,
+                        "periodo": periodo,
+                        "ativo": True
+                    }
+                    result = self._client.table("orcamentos").update(data).eq("id", orc_id).execute()
+                    return result.data[0] if result.data else None
+
                 # Criar
                 data = {
-                    "user_id": user_id, 
-                    "categoria_id": categoria_id, 
-                    "valor_limite": valor_limite, 
+                    "user_id": user_id,
+                    "categoria_id": categoria_id,
+                    "valor_limite": valor_limite,
                     "periodo": periodo,
                     "ativo": True
                 }

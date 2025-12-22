@@ -224,6 +224,18 @@ CREATE TABLE IF NOT EXISTS transacoes (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Tabela de orçamentos
+CREATE TABLE IF NOT EXISTS orcamentos (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES usuarios(id) ON DELETE CASCADE,
+    categoria_id UUID REFERENCES categorias(id) ON DELETE CASCADE,
+    valor_limite DECIMAL(12,2) NOT NULL,
+    periodo VARCHAR(20) DEFAULT 'mensal',
+    ativo BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- Tabela de cupons fiscais
 CREATE TABLE IF NOT EXISTS cupons_fiscais (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -257,6 +269,13 @@ CREATE INDEX IF NOT EXISTS idx_transacoes_data ON transacoes(data);
 CREATE INDEX IF NOT EXISTS idx_transacoes_categoria ON transacoes(categoria_id);
 CREATE INDEX IF NOT EXISTS idx_cupons_user_id ON cupons_fiscais(user_id);
 CREATE INDEX IF NOT EXISTS idx_categorias_user_id ON categorias(user_id);
+CREATE INDEX IF NOT EXISTS idx_orcamentos_user_id ON orcamentos(user_id);
+CREATE INDEX IF NOT EXISTS idx_orcamentos_categoria_id ON orcamentos(categoria_id);
+
+-- Evita orçamentos duplicados ativos para a mesma categoria
+CREATE UNIQUE INDEX IF NOT EXISTS uq_orcamentos_user_categoria_ativo
+ON orcamentos(user_id, categoria_id)
+WHERE ativo = TRUE;
 
 -- Trigger para atualizar updated_at
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -277,12 +296,18 @@ CREATE TRIGGER update_usuarios_updated_at
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_orcamentos_updated_at
+    BEFORE UPDATE ON orcamentos
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- RLS (Row Level Security) para isolamento de dados por usuário
 ALTER TABLE usuarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE categorias ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transacoes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cupons_fiscais ENABLE ROW LEVEL SECURITY;
 ALTER TABLE itens_cupom ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orcamentos ENABLE ROW LEVEL SECURITY;
 
 -- Políticas RLS (ajuste conforme configuração do Supabase Auth)
 -- CREATE POLICY "Users can view own data" ON transacoes FOR SELECT USING (auth.uid() = user_id);

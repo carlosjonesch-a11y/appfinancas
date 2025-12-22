@@ -6,6 +6,7 @@ import os
 from datetime import datetime, timedelta
 import random
 from pathlib import Path
+import uuid
 
 # Ajustar o path para importar do projeto
 import sys
@@ -14,7 +15,46 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from services.database import db
 
-def popular_dados_exemplo(user_id: str = "demo_user"):
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except Exception:
+        return False
+
+
+def _resolve_user_id(user_id: str | None, email: str | None, nome: str | None) -> str:
+    """Resolve o user_id de forma segura.
+
+    - Supabase: exige UUID. Se não vier UUID, permite resolver/criar via email.
+    - Local: permite fallback para "demo_user".
+    """
+    if db.is_local:
+        return user_id or "demo_user"
+
+    # Supabase
+    if user_id:
+        if not _is_uuid(user_id):
+            raise ValueError("No Supabase, o --user-id precisa ser um UUID válido.")
+        return user_id
+
+    if email:
+        existente = db.buscar_usuario_por_email(email)
+        if existente and "id" in existente:
+            return existente["id"]
+
+        nome_final = nome or email.split("@")[0] or "Usuário Demo"
+        criado = db.criar_usuario(email=email, nome=nome_final)
+        if criado and "id" in criado:
+            print(f"✅ Usuário criado: {email} (id={criado['id']})")
+            return criado["id"]
+
+        raise RuntimeError("Não foi possível criar o usuário no Supabase.")
+
+    raise ValueError("No Supabase, informe --user-id (UUID) ou --email para resolver/criar o usuário.")
+
+
+def popular_dados_exemplo(user_id: str):
     """
     Popula o banco com dados de exemplo
     """
@@ -44,30 +84,38 @@ def popular_dados_exemplo(user_id: str = "demo_user"):
     categorias_ids = {}
     
     # Buscar categorias existentes
-    categorias_existentes = db.listar_categorias(user_id)
+    # Inclui categorias inativas (soft delete) para poder reativar ao popular novamente
+    categorias_existentes = db.listar_categorias(user_id, include_inactive=True)
     categorias_map = {f"{c['nome']}_{c['tipo']}": c for c in categorias_existentes}
-    
+
     for cat in categorias_despesas + categorias_receitas:
         chave = f"{cat['nome']}_{cat['tipo']}"
-        
-        if chave in categorias_map:
-            # Categoria já existe
-            categoria_existente = categorias_map[chave]
-            categorias_ids[cat["nome"]] = categoria_existente["id"]
+        existente = categorias_map.get(chave)
+
+        if existente:
+            # Se estava inativa por 'limpar', reativar para voltar a aparecer na UI
+            if not existente.get("ativo", True):
+                atualizada = db.atualizar_categoria(existente["id"], {"ativo": True, "icone": cat["icone"]})
+                if atualizada:
+                    existente = atualizada
+                    print(f"♻️ Categoria reativada: {cat['nome']} ({cat['tipo']})")
+
+            categorias_ids[cat["nome"]] = existente["id"]
             print(f"  ✓ {cat['icone']} {cat['nome']} (já existe)")
+            continue
+
+        # Criar nova categoria
+        categoria_criada = db.criar_categoria(
+            user_id=user_id,
+            nome=cat["nome"],
+            tipo=cat["tipo"],
+            icone=cat["icone"]
+        )
+        if categoria_criada and "id" in categoria_criada:
+            categorias_ids[cat["nome"]] = categoria_criada["id"]
+            print(f"  ✓ {cat['icone']} {cat['nome']} (criada)")
         else:
-            # Criar nova categoria
-            categoria_criada = db.criar_categoria(
-                user_id=user_id,
-                nome=cat["nome"],
-                tipo=cat["tipo"],
-                icone=cat["icone"]
-            )
-            if categoria_criada and "id" in categoria_criada:
-                categorias_ids[cat["nome"]] = categoria_criada["id"]
-                print(f"  ✓ {cat['icone']} {cat['nome']} (criada)")
-            else:
-                print(f"  ❌ Erro ao criar {cat['nome']}")
+            print(f"  ❌ Erro ao criar {cat['nome']}")
     
     # 3. Criar orçamentos para categorias de despesa
     print("\n💰 Verificando e criando orçamentos...")
@@ -107,7 +155,6 @@ def popular_dados_exemplo(user_id: str = "demo_user"):
     for mes in range(3):
         data_receita = hoje - timedelta(days=30*mes)
         data_receita = data_receita.replace(day=5)  # Dia 5 de cada mês
-        
         # Salário
         db.criar_transacao({
             "user_id": user_id,
@@ -206,7 +253,7 @@ def popular_dados_exemplo(user_id: str = "demo_user"):
     print(f"   - ~{sum(qtd for _, _, _, qtd in despesas_exemplos) + 6} transações")
 
 
-def limpar_dados(user_id: str = "demo_user"):
+def limpar_dados(user_id: str, keep_categorias: bool = False):
     """
     Remove todos os dados do usuário
     """
@@ -225,10 +272,13 @@ def limpar_dados(user_id: str = "demo_user"):
     print(f"  ✓ {len(orcamentos)} orçamentos deletados")
     
     # Deletar categorias
-    categorias = db.listar_categorias(user_id)
-    for c in categorias:
-        db.deletar_categoria(c["id"])
-    print(f"  ✓ {len(categorias)} categorias deletadas")
+    if keep_categorias:
+        print("  ↪️  Categorias preservadas (--keep-categorias)")
+    else:
+        categorias = db.listar_categorias(user_id)
+        for c in categorias:
+            db.deletar_categoria(c["id"])
+        print(f"  ✓ {len(categorias)} categorias deletadas")
     
     print("\n✅ Dados limpos com sucesso!")
 
@@ -238,11 +288,24 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Popular ou limpar banco de dados")
     parser.add_argument("acao", choices=["popular", "limpar"], help="Ação a executar")
-    parser.add_argument("--user-id", default="demo_user", help="ID do usuário (padrão: demo_user)")
+    parser.add_argument("--user-id", default=None, help="ID do usuário (UUID no Supabase)")
+    parser.add_argument("--email", default=None, help="Email do usuário (para resolver/criar no Supabase)")
+    parser.add_argument("--nome", default=None, help="Nome do usuário (usado ao criar via --email)")
+    parser.add_argument(
+        "--keep-categorias",
+        action="store_true",
+        help="No comando limpar: não desativa/deleta categorias (mantém só apagando transações e orçamentos)",
+    )
     
     args = parser.parse_args()
     
+    try:
+        resolved_user_id = _resolve_user_id(args.user_id, args.email, args.nome)
+    except Exception as e:
+        print(f"❌ {e}")
+        raise SystemExit(2)
+
     if args.acao == "popular":
-        popular_dados_exemplo(args.user_id)
+        popular_dados_exemplo(resolved_user_id)
     else:
-        limpar_dados(args.user_id)
+        limpar_dados(resolved_user_id, keep_categorias=args.keep_categorias)
