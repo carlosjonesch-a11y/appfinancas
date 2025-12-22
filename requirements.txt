@@ -1,11 +1,5 @@
 # Framework Web
 streamlit>=1.29.0
-streamlit-authenticator>=0.3.1
-
-# Banco de Dados
-sqlalchemy>=2.0.0
-psycopg2-binary>=2.9.9
-supabase>=2.0.0
 
 # OCR e Processamento de Imagem
 easyocr>=1.7.1
@@ -19,15 +13,20 @@ numpy>=1.26.0
 
 # Utilitários
 python-dotenv>=1.0.0
-bcrypt>=4.1.0
-pyyaml>=6.0.1
 python-dateutil>=2.8.2
 regex>=2023.10.3
 
 # QR Code (consulta NFC-e)
-requests>=2.31.0
+requests
 beautifulsoup4>=4.12.0
 lxml>=5.0.0
 
 # Exportação
 openpyxl>=3.1.2
+
+# OFX (cartão)
+ofxparse>=0.21
+
+# Google Sheets (opcional: persistência remota)
+gspread>=6.1.0
+google-auth>=2.25.0

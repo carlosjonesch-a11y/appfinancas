@@ -13,12 +13,14 @@ ROOT_DIR = Path(__file__).parent
 sys.path.insert(0, str(ROOT_DIR))
 
 from config import Config
-from services.auth import AuthService, render_login_page
+from services.database import db
 from pages.dashboard import render_dashboard_page, render_widget_resumo_lateral
 from pages.transacoes import render_transacoes_page, render_nova_transacao_page
 from pages.categorias import render_categorias_page
 from pages.orcamentos import render_orcamentos_page
 from pages.configuracoes import render_configuracoes_page
+from pages.cartao_credito import render_cartao_page
+from pages.investimentos import render_investimentos_page
 
 
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
@@ -38,7 +40,7 @@ st.set_page_config(
         - 📊 Dashboard interativo
         - 📸 Leitura de cupons fiscais (OCR)
         - 🏷️ Categorização automática
-        - 👥 Multi-usuário
+        - 👤 Uso pessoal
         
         Desenvolvido com ❤️ usando Streamlit
         """
@@ -173,6 +175,39 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
+def ensure_single_user_session() -> bool:
+    """Inicializa um usuário único (sem autenticação) e salva na sessão.
+
+    Mantém o app utilizável enquanto você está testando sozinho.
+    """
+    try:
+        if st.session_state.get("user_id"):
+            return True
+
+        email = getattr(Config, "SINGLE_USER_EMAIL", "meu@app.local")
+        nome = getattr(Config, "SINGLE_USER_NAME", "Usuário")
+
+        user = db.buscar_usuario_por_email(email=email)
+        if not user:
+            user = db.criar_usuario(email=email, nome=nome)
+            if user and user.get("id"):
+                try:
+                    db.criar_categorias_padrao(user_id=str(user.get("id")))
+                except Exception:
+                    pass
+
+        if not user or not user.get("id"):
+            st.error("Não foi possível inicializar o usuário único. Verifique conexão do banco.")
+            return False
+
+        st.session_state.user_id = str(user.get("id"))
+        st.session_state.user_name = user.get("nome") or nome
+        st.session_state.user_email = user.get("email") or email
+        return True
+    except Exception:
+        st.error("Erro ao inicializar o usuário único.")
+        return False
+
 # ==================== NAVEGAÇÃO ====================
 
 def render_sidebar():
@@ -299,7 +334,7 @@ def render_sidebar():
                 margin-bottom: 0.5rem;
             }
             
-            /* Logout button */
+            /* Sidebar button */
             [data-testid="stSidebar"] button[kind="secondary"] {
                 background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
                 color: white !important;
@@ -337,6 +372,8 @@ def render_sidebar():
                 "📊 Dashboard",
                 "➕ Nova Transação",
                 "📋 Transações",
+                "💳 Cartão de Crédito",
+                "📈 Investimentos",
                 "💰 Orçamentos",
                 "🏷️ Categorias",
                 "⚙️ Configurações",
@@ -346,34 +383,30 @@ def render_sidebar():
         
         st.markdown("---")
         
-        # Info do usuário e logout
-        auth = AuthService()
-        user = auth.get_current_user()
-        
-        if user:
-            st.markdown('<div class="user-card">', unsafe_allow_html=True)
-            st.markdown('<div class="user-avatar">👤</div>', unsafe_allow_html=True)
-            st.markdown(f"<div style='color: #000000; font-size: 1rem; font-weight: 700; text-align: center; margin-bottom: 0.25rem;'>{user.get('name', 'Usuário')}</div>", unsafe_allow_html=True)
-            st.markdown(f"<div style='color: #64748b; font-size: 0.85rem; text-align: center;'>{user.get('email', '')}</div>", unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-            
-            st.markdown("")
-            
-            if st.button("🚪 Sair", width='stretch', type="secondary", key="btn_logout"):
-                auth.logout()
-                st.rerun()
+        # Info do usuário (modo usuário único)
+        nome = st.session_state.get("user_name") or "Usuário"
+        email = st.session_state.get("user_email") or ""
+
+        st.markdown('<div class="user-card">', unsafe_allow_html=True)
+        st.markdown('<div class="user-avatar">👤</div>', unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='color: #000000; font-size: 1rem; font-weight: 700; text-align: center; margin-bottom: 0.25rem;'>{nome}</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<div style='color: #64748b; font-size: 0.85rem; text-align: center;'>{email}</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown('</div>', unsafe_allow_html=True)
         
         return pagina
 
 
 def main():
     """Função principal do aplicativo"""
-    
-    # Verificar autenticação
-    auth = AuthService()
-    
-    if not auth.is_authenticated():
-        render_login_page()
+
+    # Modo sem autenticação (usuário único)
+    if not ensure_single_user_session():
         return
     
     # Renderizar sidebar e obter página selecionada
@@ -391,6 +424,12 @@ def main():
         
     elif pagina == "💰 Orçamentos":
         render_orcamentos_page()
+
+    elif pagina == "💳 Cartão de Crédito":
+        render_cartao_page()
+
+    elif pagina == "📈 Investimentos":
+        render_investimentos_page()
     
     elif pagina == "🏷️ Categorias":
         render_categorias_page()

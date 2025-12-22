@@ -1,6 +1,6 @@
 # 💰 Finanças Pessoais
 
-Aplicativo de gestão financeira pessoal com suporte a múltiplos usuários e leitura automática de cupons fiscais (OCR).
+Aplicativo de gestão financeira pessoal com leitura automática de cupons fiscais (OCR).
 
 ## ✨ Funcionalidades
 
@@ -9,7 +9,7 @@ Aplicativo de gestão financeira pessoal com suporte a múltiplos usuários e le
 - 🤖 **Lançamento automático** - Importação direta dos itens do cupom
 - ✏️ **Lançamento semi-automático** - Revise antes de salvar
 - 🏷️ **Categorização inteligente** - Sugestão automática de categorias
-- 👥 **Multi-usuário** - Cada pessoa tem seus próprios dados
+- 👤 **Usuário único** - Foco em uso pessoal (sem login)
 - 📱 **Interface responsiva** - Funciona no celular e desktop
 
 ## 🚀 Instalação
@@ -47,13 +47,7 @@ copy .env.example .env
 # Edite o .env com suas configurações
 ```
 
-5. **Configure o Supabase (opcional, mas recomendado)**
-   - Crie uma conta gratuita em [supabase.com](https://supabase.com)
-   - Crie um novo projeto
-   - Execute o SQL de criação de tabelas (veja `models/__init__.py`)
-   - Copie a URL e a chave anon para o arquivo `.env`
-
-6. **Execute o aplicativo**
+5. **Execute o aplicativo**
 ```bash
 streamlit run app.py
 ```
@@ -68,10 +62,9 @@ app finanças/
 ├── .env.example          # Exemplo de variáveis de ambiente
 ├── .gitignore
 ├── README.md
-├── data/                  # Dados locais (credenciais)
-│   └── credentials.yaml
+├── data/                  # Opcional (dev local); não versionado
 ├── models/
-│   └── __init__.py       # Modelos de dados e SQL
+│   └── __init__.py       # Modelos de dados
 ├── pages/
 │   ├── __init__.py
 │   ├── dashboard.py      # Página do dashboard
@@ -79,18 +72,9 @@ app finanças/
 │   └── categorias.py     # Página de categorias
 └── services/
     ├── __init__.py
-    ├── auth.py           # Serviço de autenticação
     ├── database.py       # Serviço de banco de dados
     └── ocr.py            # Serviço de OCR
 ```
-
-## 🔧 Configuração do Supabase
-
-1. Crie uma conta em [supabase.com](https://supabase.com)
-2. Crie um novo projeto
-3. Vá em **SQL Editor** e execute o script SQL em `models/__init__.py` (variável `SQL_CREATE_TABLES`)
-4. Copie a **URL** e a **anon key** de **Settings > API**
-5. Cole no arquivo `.env`
 
 ## 📸 Como usar o OCR
 
@@ -113,7 +97,6 @@ app finanças/
 
 - **[Streamlit](https://streamlit.io/)** - Framework web
 - **[EasyOCR](https://github.com/JaidedAI/EasyOCR)** - Reconhecimento de texto
-- **[Supabase](https://supabase.com/)** - Banco de dados PostgreSQL
 - **[Plotly](https://plotly.com/)** - Gráficos interativos
 - **[Pandas](https://pandas.pydata.org/)** - Manipulação de dados
 
@@ -127,17 +110,30 @@ app finanças/
    - **Repository**: seu repositório
    - **Branch**: `main` (ou a branch que você usa)
    - **Main file path**: `app.py`
-4. Em **App settings → Secrets**, cole as variáveis (veja o arquivo `.streamlit/secrets.toml.example`):
-   - `SUPABASE_URL`
-   - `SUPABASE_KEY`
-   - `SECRET_KEY` (obrigatório para o cookie do login)
-   - (opcional) `APP_NAME`, `DEBUG`
+4. Em **App settings → Secrets**, cole:
+   - `APP_NAME`, `DEBUG`
+   - `SINGLE_USER_EMAIL`, `SINGLE_USER_NAME`
+   - `STORAGE_BACKEND = "gsheets"`
+   - `GOOGLE_SHEETS_SPREADSHEET_ID = "<id ou url>"`
+   - `gcp_service_account` (o JSON do service account)
 5. Deploy.
 
 Observações importantes:
-- O Streamlit Cloud não é armazenamento persistente. Arquivos locais (ex: `data/credentials.yaml`) podem ser perdidos se o app reiniciar.
-- Para evitar recriar usuário a cada reboot, o deploy usa autenticação persistida no Supabase (tabela `auth_credenciais`). Execute o SQL em `supabase_update.sql`.
-- **Não versionar** `data/credentials.yaml`: ele pode conter emails e hashes de senha. Ele já foi adicionado ao `.gitignore`.
+- Com `STORAGE_BACKEND=gsheets`, seus dados ficam persistidos no Google Sheets.
+- Arquivos locais em `data/` não são persistentes no Streamlit Cloud.
+
+## 🧪 Popular dados de exemplo (Google Sheets)
+
+Para popular sua planilha com dados de exemplo, rode localmente apontando o backend para `gsheets`.
+
+1. Crie `.streamlit/secrets.toml` (não versionado) com:
+   - `STORAGE_BACKEND = "gsheets"`
+   - `GOOGLE_SHEETS_SPREADSHEET_ID = "<id>"`
+   - `[gcp_service_account]` (JSON do service account)
+2. Rode o script:
+```bash
+python scripts/popular_banco.py popular
+```
 
 ### Render
 

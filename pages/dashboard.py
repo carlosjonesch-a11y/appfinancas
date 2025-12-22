@@ -1,9 +1,10 @@
-"""
-Dashboard financeiro com gráficos e resumos
-"""
+"""Dashboard financeiro com gráficos e resumos."""
+
 import streamlit as st
 from datetime import datetime, date, timedelta
-from typing import Dict, List
+from typing import Dict, List, Optional, Tuple
+from calendar import monthrange
+
 import pandas as pd
 
 try:
@@ -21,6 +22,257 @@ def get_user_id() -> str:
     return st.session_state.get("user_id", "")
 
 
+def _format_brl(value: float) -> str:
+    try:
+        return f"R$ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "R$ 0,00"
+
+
+def _to_date(value) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+        except Exception:
+            return None
+    return None
+
+
+def _add_months(d: date, months: int) -> date:
+    year = d.year + (d.month - 1 + months) // 12
+    month = (d.month - 1 + months) % 12 + 1
+    last_day = monthrange(year, month)[1]
+    return date(year, month, min(d.day, last_day))
+
+
+def _sum_movimentos(transacoes: List[Dict], ate: date, incluir_previstas: bool) -> float:
+    total = 0.0
+    for t in transacoes:
+        status = (t.get("status") or "realizada").lower()
+        if status == "substituida":
+            continue
+
+        if incluir_previstas:
+            if status not in {"realizada", "prevista"}:
+                continue
+        else:
+            if status != "realizada":
+                continue
+
+        dt = _to_date(t.get("data"))
+        if not dt or dt > ate:
+            continue
+
+        try:
+            valor = float(t.get("valor") or 0)
+        except Exception:
+            valor = 0.0
+
+        if t.get("tipo") == "receita":
+            total += valor
+        else:
+            total -= valor
+    return total
+
+
+def _calcular_saldos_contas(
+    user_id: str,
+    hoje: date,
+    fim_mes: date,
+) -> Tuple[pd.DataFrame, float, float]:
+    contas = db.listar_contas(user_id)
+
+    contas_rows: List[Dict] = []
+    conta_map: Dict[str, Dict] = {c.get("id"): c for c in contas if c.get("id")}
+
+    datas_iniciais = [
+        _to_date(c.get("data_saldo_inicial"))
+        for c in contas
+        if _to_date(c.get("data_saldo_inicial")) is not None
+    ]
+    data_inicio_consulta = min(datas_iniciais) if datas_iniciais else None
+
+    transacoes = db.listar_transacoes(
+        user_id=user_id,
+        data_inicio=data_inicio_consulta,
+        data_fim=fim_mes,
+        limite=5000,
+        incluir_previstas=True,
+    )
+
+    trans_por_conta: Dict[Optional[str], List[Dict]] = {}
+    for t in transacoes:
+        cid = t.get("conta_id")
+        trans_por_conta.setdefault(cid, []).append(t)
+
+    total_real = 0.0
+    total_provisionado = 0.0
+
+    for conta in contas:
+        conta_id = conta.get("id")
+        nome = conta.get("nome") or "Conta"
+        tipo = conta.get("tipo") or "banco"
+        try:
+            saldo_inicial = float(conta.get("saldo_inicial") or 0)
+        except Exception:
+            saldo_inicial = 0.0
+
+        data_ini = _to_date(conta.get("data_saldo_inicial")) or hoje
+        trans_c = [t for t in trans_por_conta.get(conta_id, []) if (_to_date(t.get("data")) or date.min) >= data_ini]
+
+        saldo_real = saldo_inicial + _sum_movimentos(trans_c, hoje, incluir_previstas=False)
+        saldo_prov = saldo_inicial + _sum_movimentos(trans_c, fim_mes, incluir_previstas=True)
+
+        total_real += saldo_real
+        total_provisionado += saldo_prov
+
+        contas_rows.append(
+            {
+                "Conta": nome,
+                "Tipo": tipo,
+                "Saldo inicial": saldo_inicial,
+                "Saldo real (hoje)": saldo_real,
+                "Saldo provisionado (fim do mês)": saldo_prov,
+            }
+        )
+
+    # Transações sem conta (legado)
+    if trans_por_conta.get(None):
+        trans_sc = trans_por_conta.get(None, [])
+        saldo_real = _sum_movimentos(trans_sc, hoje, incluir_previstas=False)
+        saldo_prov = _sum_movimentos(trans_sc, fim_mes, incluir_previstas=True)
+
+        total_real += saldo_real
+        total_provisionado += saldo_prov
+
+        contas_rows.append(
+            {
+                "Conta": "Sem conta",
+                "Tipo": "-",
+                "Saldo inicial": 0.0,
+                "Saldo real (hoje)": saldo_real,
+                "Saldo provisionado (fim do mês)": saldo_prov,
+            }
+        )
+
+    df = pd.DataFrame(contas_rows)
+    if not df.empty:
+        df = df.sort_values(["Tipo", "Conta"], ascending=[True, True])
+
+    return df, total_real, total_provisionado
+
+
+def render_fluxo_caixa_e_projecao(user_id: str):
+    """Mostra saldo real, provisionado e projeção 12/18 meses."""
+    hoje = date.today()
+    ultimo_dia_mes = monthrange(hoje.year, hoje.month)[1]
+    fim_mes = date(hoje.year, hoje.month, ultimo_dia_mes)
+
+    st.subheader("💳 Contas e Fluxo de Caixa")
+
+    df_contas, total_real, total_prov = _calcular_saldos_contas(user_id, hoje, fim_mes)
+
+    total_invest_hoje = db.total_investimentos_projetado_em(user_id, hoje)
+    total_geral_hoje = float(total_real) + float(total_invest_hoje)
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Saldo em contas (hoje)", _format_brl(total_real))
+    with c2:
+        st.metric("Saldo provisionado (fim do mês)", _format_brl(total_prov))
+    with c3:
+        st.metric("Investimentos (hoje)", _format_brl(total_invest_hoje))
+    with c4:
+        st.metric("Total (hoje)", _format_brl(total_geral_hoje))
+
+    horizon = st.selectbox("Projeção", options=[12, 18], index=0, format_func=lambda x: f"{x} meses")
+
+    if df_contas.empty:
+        st.info("Cadastre pelo menos uma conta em Configurações para ver o fluxo de caixa.")
+        return
+
+    df_show = df_contas.copy()
+    for col in ["Saldo inicial", "Saldo real (hoje)", "Saldo provisionado (fim do mês)"]:
+        df_show[col] = df_show[col].map(_format_brl)
+    st.dataframe(df_show, hide_index=True, use_container_width=True)
+
+    # Projeção: a partir do saldo provisionado do fim do mês atual
+    orcamentos = db.listar_orcamentos(user_id)
+    total_orcamento_mensal = sum(float(o.get("valor_limite", 0) or 0) for o in orcamentos)
+
+    recorrentes = db.listar_recorrentes(user_id, include_inactive=False)
+    entradas_fixas = sum(float(r.get("valor", 0) or 0) for r in recorrentes if r.get("tipo") == "receita")
+    saidas_fixas = sum(float(r.get("valor", 0) or 0) for r in recorrentes if r.get("tipo") == "despesa")
+
+    saldo = float(total_prov)
+    base = date(hoje.year, hoje.month, 1)
+
+    rows: List[Dict] = []
+    for i in range(1, int(horizon) + 1):
+        mes_ref = _add_months(base, i)
+        mes_label = mes_ref.strftime("%b/%Y")
+
+        # Net do mês = fixas (recorrentes) - orçamento (variáveis planejadas)
+        net = entradas_fixas - saidas_fixas - total_orcamento_mensal
+        saldo = saldo + net
+
+        ultimo = monthrange(mes_ref.year, mes_ref.month)[1]
+        mes_ref_fim = date(mes_ref.year, mes_ref.month, ultimo)
+        invest_mes = db.total_investimentos_projetado_em(user_id, mes_ref_fim)
+        total_mes = float(saldo) + float(invest_mes)
+
+        rows.append(
+            {
+                "Mês": mes_label,
+                "Saldo em contas": saldo,
+                "Investimentos": invest_mes,
+                "Total projetado": total_mes,
+                "Entradas fixas": entradas_fixas,
+                "Saídas fixas": saidas_fixas,
+                "Orçamento": total_orcamento_mensal,
+            }
+        )
+
+    df_proj = pd.DataFrame(rows)
+    st.subheader("🔮 Projeção de Saldo")
+    st.caption("Projeção mensal = recorrentes (fixas) + orçamento (planejado). Total inclui investimentos.")
+
+    if PLOTLY_AVAILABLE and not df_proj.empty:
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=df_proj["Mês"],
+                y=df_proj["Total projetado"],
+                mode="lines+markers",
+                name="Total projetado",
+                line=dict(color="#1e3a8a", width=3),
+                marker=dict(size=7, color="#1e3a8a"),
+                hovertemplate="<b>%{x}</b><br>Saldo: R$ %{y:,.2f}<extra></extra>",
+            )
+        )
+        fig.update_layout(
+            height=380,
+            margin=dict(t=30, b=30, l=20, r=20),
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            yaxis=dict(showgrid=True, gridcolor="#f1f5f9", title="Saldo (R$)"),
+            xaxis=dict(showgrid=False, title="Mês"),
+            showlegend=False,
+        )
+        st.plotly_chart(fig, width="stretch")
+    else:
+        df_proj_show = df_proj.copy()
+        for col in ["Saldo em contas", "Investimentos", "Total projetado", "Entradas fixas", "Saídas fixas", "Orçamento"]:
+            df_proj_show[col] = df_proj_show[col].map(_format_brl)
+        st.dataframe(df_proj_show, hide_index=True, use_container_width=True)
+
+
 def render_dashboard_page():
     """Renderiza o dashboard principal"""
     
@@ -30,6 +282,9 @@ def render_dashboard_page():
         return
     
     st.header("📊 Dashboard")
+
+    render_fluxo_caixa_e_projecao(user_id)
+    st.markdown("---")
     
     # Seletor de período
     col1, col2, col3 = st.columns([1, 1, 2])
@@ -348,12 +603,6 @@ def render_transacoes_recentes(transacoes: List[Dict]):
         })
 
     df = pd.DataFrame(rows)
-
-    def _format_brl(value: float) -> str:
-        try:
-            return f"R$ {float(value):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-        except Exception:
-            return "R$ 0,00"
 
     def _format_date(value) -> str:
         try:

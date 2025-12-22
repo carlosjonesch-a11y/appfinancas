@@ -25,11 +25,7 @@ def _get_secret(key: str, default: str = "") -> str:
         if key in st.secrets and st.secrets.get(key) not in (None, ""):
             return str(st.secrets.get(key))
 
-        # Permite formato em seção, ex: [supabase] url=... key=...
-        if key == "SUPABASE_URL":
-            return str(st.secrets.get("supabase", {}).get("url", default))
-        if key == "SUPABASE_KEY":
-            return str(st.secrets.get("supabase", {}).get("key", default))
+        # Mantém compatibilidade com st.secrets simples (sem seções)
     except Exception:
         return default
 
@@ -38,14 +34,22 @@ def _get_secret(key: str, default: str = "") -> str:
 class Config:
     """Configurações base do aplicativo"""
     
-    # Supabase
-    SUPABASE_URL = _get_secret("SUPABASE_URL", "")
-    SUPABASE_KEY = _get_secret("SUPABASE_KEY", "")
-    
     # App
     APP_NAME = _get_secret("APP_NAME", "Finanças Pessoais")
-    SECRET_KEY = _get_secret("SECRET_KEY", "dev-secret-key-change-in-production")
     DEBUG = _get_secret("DEBUG", "False").lower() == "true"
+
+    # Modo usuário único (sem autenticação)
+    SINGLE_USER_EMAIL = _get_secret("SINGLE_USER_EMAIL", "meu@app.local")
+    SINGLE_USER_NAME = _get_secret("SINGLE_USER_NAME", "Usuário")
+
+    # Persistência
+    # local: JSON em data/
+    # gsheets: Google Sheets (requer Secrets + Service Account)
+    STORAGE_BACKEND = _get_secret("STORAGE_BACKEND", "local").strip().lower()
+
+    # Google Sheets
+    # Aceita ID puro ou URL do Sheets; o backend extrai o ID quando necessário.
+    GOOGLE_SHEETS_SPREADSHEET_ID = _get_secret("GOOGLE_SHEETS_SPREADSHEET_ID", "").strip()
     
     # Categorias padrão
     CATEGORIAS_PADRAO = {

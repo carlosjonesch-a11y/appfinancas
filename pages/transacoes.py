@@ -7,7 +7,6 @@ from typing import List, Dict, Optional
 import pandas as pd
 
 from services.database import db
-from services.auth import AuthService
 from services.ocr import ocr, CupomExtraido, ItemExtraido
 from services.qrcode import qrcode_service, DadosNFCe
 from config import Config
@@ -28,7 +27,7 @@ def render_transacoes_page():
         return
     
     # Filtros
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3, col4, col5 = st.columns(5)
     
     with col1:
         data_inicio = st.date_input(
@@ -59,6 +58,15 @@ def render_transacoes_page():
             options=cat_options,
             key="filtro_categoria"
         )
+
+    with col5:
+        contas = db.listar_contas(user_id)
+        conta_options = ["Todas"] + [c["nome"] for c in contas]
+        conta_filtro = st.selectbox(
+            "Conta",
+            options=conta_options,
+            key="filtro_conta"
+        )
     
     # Buscar transações
     tipo_param = None
@@ -72,14 +80,56 @@ def render_transacoes_page():
         cat_match = next((c for c in categorias if c["nome"] == cat_filtro), None)
         if cat_match:
             cat_id = cat_match["id"]
+
+    conta_id = None
+    if conta_filtro != "Todas":
+        conta_match = next((c for c in contas if c["nome"] == conta_filtro), None)
+        if conta_match:
+            conta_id = conta_match["id"]
     
     transacoes = db.listar_transacoes(
         user_id=user_id,
         data_inicio=data_inicio,
         data_fim=data_fim,
         tipo=tipo_param,
-        categoria_id=cat_id
+        categoria_id=cat_id,
+        conta_id=conta_id
     )
+
+    st.markdown("---")
+
+    # Provisões do mês (previstas) + marcar como aconteceu
+    with st.expander("🗓️ Provisões (previstas) do mês"):
+        hoje = date.today()
+        inicio_mes = hoje.replace(day=1)
+        previstas = db.listar_transacoes(
+            user_id=user_id,
+            data_inicio=inicio_mes,
+            data_fim=hoje.replace(day=28) + timedelta(days=4),
+            limite=500,
+            incluir_previstas=True,
+        )
+        previstas = [t for t in previstas if t.get("status") == "prevista"]
+
+        if not previstas:
+            st.info("Sem transações previstas no mês. Use Configurações → Fixas do mês → Gerar previstas.")
+        else:
+            for t in previstas[:50]:
+                col_a, col_b, col_c = st.columns([3, 1, 1])
+                with col_a:
+                    conta_nome = (t.get("contas") or {}).get("nome") if isinstance(t.get("contas"), dict) else ""
+                    cat_nome = (t.get("categorias") or {}).get("nome") if isinstance(t.get("categorias"), dict) else ""
+                    st.write(f"{t.get('data')} — {t.get('descricao')} ({cat_nome}) [{conta_nome}]")
+                with col_b:
+                    st.write(f"R$ {float(t.get('valor') or 0):.2f}")
+                with col_c:
+                    if st.button("Aconteceu", key=f"btn_aconteceu_{t.get('id')}"):
+                        criada = db.criar_real_a_partir_da_prevista(t.get("id"))
+                        if criada:
+                            st.success("✅ Marcado como realizado")
+                            st.rerun()
+                        else:
+                            st.error("❌ Não foi possível marcar")
     
     # Exibir transações
     if not transacoes:
@@ -168,6 +218,10 @@ def render_lancamento_manual(user_id: str):
                 del st.session_state[k]
     st.session_state["manual_tipo_valor_prev"] = tipo_valor
 
+    contas = db.listar_contas(user_id)
+    conta_options = {c["nome"]: c["id"] for c in contas} if contas else {}
+    conta_nome_default = list(conta_options.keys())[0] if conta_options else None
+
     with st.form("form_transacao_manual"):
         with col_data:
             data = st.date_input(
@@ -204,6 +258,15 @@ def render_lancamento_manual(user_id: str):
                 key="manual_categoria"
             )
 
+        conta_selecionada = None
+        if conta_options:
+            conta_selecionada = st.selectbox(
+                "Conta",
+                options=list(conta_options.keys()),
+                index=0,
+                key="manual_conta",
+            )
+
         observacao = st.text_area("Observação (opcional)", key="manual_obs")
 
         submitted = st.form_submit_button("💾 Salvar Transação", width='stretch')
@@ -220,6 +283,7 @@ def render_lancamento_manual(user_id: str):
             "tipo": tipo_valor,
             "data": data.isoformat(),
             "categoria_id": cat_options.get(categoria_selecionada) if cat_options else None,
+            "conta_id": conta_options.get(conta_selecionada) if conta_options and conta_selecionada else None,
             "observacao": observacao,
             "modo_lancamento": "manual"
         }

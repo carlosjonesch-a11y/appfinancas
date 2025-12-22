@@ -34,6 +34,12 @@ wheels/
 # Credenciais locais (não versionar)
 data/credentials.yaml
 
+# Dados locais (não versionar; persistência oficial via Google Sheets)
+data/*.json
+
+# Arquivo auxiliar local (de outro projeto)
+google_sheets_manager.py
+
 # IDE
 .idea/
 .vscode/
