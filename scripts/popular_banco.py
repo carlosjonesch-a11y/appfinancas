@@ -3,7 +3,7 @@ Script para popular o banco de dados com dados de exemplo
 """
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import random
 from pathlib import Path
 import uuid
