@@ -159,7 +159,7 @@ class GoogleSheetsDatabase:
 
     @staticmethod
     def generate_id() -> str:
-        return GoogleSheetsStore.generate_id()
+        return str(uuid.uuid4())
 
 
 class DatabaseService:
@@ -204,10 +204,10 @@ class DatabaseService:
                         "- Confirme GOOGLE_SHEETS_SPREADSHEET_ID\n"
                         "- Em Secrets, defina gcp_service_account (service account JSON)\n"
                         "- Compartilhe a planilha com o client_email do service account (Editor)\n"
-                        f"Erro: {e}"
+                        f"Erro: {type(e).__name__}: {e}"
                     )
                     print("❌ " + msg)
-                    raise RuntimeError(msg)
+                    raise RuntimeError(msg) from e
             else:
                 self._local_db = LocalDatabase()
 
