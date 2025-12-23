@@ -267,6 +267,14 @@ def render_lancamento_manual(user_id: str):
                 key="manual_conta",
             )
 
+        status_label = st.selectbox(
+            "Status",
+            options=["Realizada", "Prevista"],
+            index=0,
+            key="manual_status",
+            help="Use 'Prevista' para provisões/orçamento por transação.",
+        )
+
         observacao = st.text_area("Observação (opcional)", key="manual_obs")
 
         submitted = st.form_submit_button("💾 Salvar Transação", width='stretch')
@@ -285,7 +293,8 @@ def render_lancamento_manual(user_id: str):
             "categoria_id": cat_options.get(categoria_selecionada) if cat_options else None,
             "conta_id": conta_options.get(conta_selecionada) if conta_options and conta_selecionada else None,
             "observacao": observacao,
-            "modo_lancamento": "manual"
+            "modo_lancamento": "manual",
+            "status": "prevista" if status_label == "Prevista" else "realizada",
         }
         
         resultado = db.criar_transacao(transacao)
@@ -294,7 +303,16 @@ def render_lancamento_manual(user_id: str):
             st.success("✅ Transação salva com sucesso!")
             st.balloons()
             # Limpar dados do formulário
-            for key in ["manual_tipo", "manual_data", "manual_descricao", "manual_valor", "manual_categoria", "manual_obs"]:
+            for key in [
+                "manual_tipo",
+                "manual_data",
+                "manual_descricao",
+                "manual_valor",
+                "manual_categoria",
+                "manual_conta",
+                "manual_status",
+                "manual_obs",
+            ]:
                 if key in st.session_state:
                     del st.session_state[key]
         else:

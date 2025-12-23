@@ -505,7 +505,7 @@ def render_sidebar():
                 "📋 Transações",
                 "💳 Cartão de Crédito",
                 "📈 Investimentos",
-                "💰 Orçamentos",
+                "💰 Provisões",
                 "🏷️ Categorias",
                 "⚙️ Configurações",
             ],
@@ -530,7 +530,7 @@ def render_sidebar():
         )
         st.markdown('</div>', unsafe_allow_html=True)
 
-        backend = (Config.STORAGE_BACKEND or "local").strip().lower()
+        backend = (Config.STORAGE_BACKEND or "supabase").strip().lower()
         if backend == "supabase":
             if st.button("Sair", use_container_width=True):
                 try:
@@ -562,7 +562,7 @@ def main():
     elif pagina == "➕ Nova Transação":
         render_nova_transacao_page()
         
-    elif pagina == "💰 Orçamentos":
+    elif pagina == "💰 Provisões":
         render_orcamentos_page()
 
     elif pagina == "💳 Cartão de Crédito":
