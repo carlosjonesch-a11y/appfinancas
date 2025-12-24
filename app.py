@@ -19,6 +19,7 @@ from pages.dashboard import render_dashboard_page, render_widget_resumo_lateral
 from pages.transacoes import render_transacoes_page, render_nova_transacao_page
 from pages.categorias import render_categorias_page
 from pages.orcamentos import render_orcamentos_page
+from pages.metas_contas import render_metas_contas_page
 from pages.configuracoes import render_configuracoes_page
 from pages.cartao_credito import render_cartao_page
 from pages.investimentos import render_investimentos_page
@@ -239,16 +240,6 @@ def ensure_user_session() -> bool:
 
     st.title(Config.APP_NAME)
     st.subheader("Entrar")
-
-    with st.expander("Diagnóstico (Supabase)"):
-        url = (getattr(Config, "SUPABASE_URL", "") or "").strip()
-        key = (getattr(Config, "SUPABASE_ANON_KEY", "") or getattr(Config, "SUPABASE_KEY", "") or "").strip()
-        safe_prefix = key[:6] + "..." if key else "(vazio)"
-        safe_suffix = "..." + key[-4:] if len(key) >= 8 else ""
-        st.write(f"STORAGE_BACKEND: {getattr(Config, 'STORAGE_BACKEND', 'supabase')}")
-        st.write(f"SUPABASE_URL: {url or '(vazio)'}")
-        st.write(f"SUPABASE_ANON_KEY: len={len(key)} prefix={safe_prefix}{safe_suffix}")
-        st.caption("A chave não é exibida por completo por segurança.")
 
     tab_login, tab_signup = st.tabs(["Entrar", "Criar conta"])
 
@@ -505,6 +496,7 @@ def render_sidebar():
                 "📋 Transações",
                 "💳 Cartão de Crédito",
                 "📈 Investimentos",
+                "🎯 Metas e Contas",
                 "💰 Provisões",
                 "🏷️ Categorias",
                 "⚙️ Configurações",
@@ -564,6 +556,9 @@ def main():
         
     elif pagina == "💰 Provisões":
         render_orcamentos_page()
+
+    elif pagina == "🎯 Metas e Contas":
+        render_metas_contas_page()
 
     elif pagina == "💳 Cartão de Crédito":
         render_cartao_page()

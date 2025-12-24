@@ -56,7 +56,7 @@ def render_lista_categorias(user_id: str, tipo: str):
                         st.success(f"Categoria '{nome}' criada!")
                         st.rerun()
                     else:
-                        st.error("Erro ao criar categoria")
+                        st.error(f"Categoria '{nome}' já existe neste tipo!")
                 else:
                     st.warning("Digite o nome da categoria")
     

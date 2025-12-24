@@ -355,6 +355,15 @@ class DatabaseService:
         return sorted(resultado, key=lambda x: x.get("nome", ""))
 
     def criar_categoria(self, user_id: str, nome: str, tipo: str, icone: str = "📦") -> Optional[Dict[str, Any]]:
+        # Validar se categoria com mesmo nome já existe
+        categorias_existentes = self.listar_categorias(user_id, tipo=tipo, include_inactive=True)
+        nome_normalizado = (nome or "").strip().lower()
+        
+        for cat in categorias_existentes:
+            if cat.get("nome", "").lower() == nome_normalizado:
+                # Categoria já existe (mesmo se inativa)
+                return None
+        
         categorias = self._local_db.read(self._local_db.categorias_file)
         nova = {
             "id": self._local_db.generate_id(),
@@ -953,6 +962,117 @@ class DatabaseService:
             total += self._aplicar_crescimento_selic(saldo_base, data_conh, alvo, selic)
 
         return float(total)
+
+    # ==================== METAS ====================
+
+    def listar_metas(self, user_id: str, mes: date | None = None, include_inactive: bool = False) -> List[Dict[str, Any]]:
+        """Lista metas/tetos de gastos do usuário."""
+        try:
+            query = self._local_db._client.table("metas").select("*")
+            query = query.eq("user_id", user_id)
+            if not include_inactive:
+                query = query.eq("ativo", True)
+            if mes:
+                # Filtra metas do mesmo mês/ano
+                inicio = mes.replace(day=1)
+                query = query.gte("mes", inicio.isoformat()).lt("mes", (inicio + timedelta(days=32)).replace(day=1).isoformat())
+            result = query.execute()
+            return result.data or []
+        except Exception:
+            return []
+
+    def criar_meta(self, user_id: str, nome: str, tipo: str, mes: date, valor_limite: float, categoria_id: str | None = None, descricao: str = "") -> Optional[Dict[str, Any]]:
+        """Cria uma nova meta/teto de gasto."""
+        try:
+            nova = {
+                "user_id": user_id,
+                "nome": (nome or "").strip(),
+                "tipo": tipo,  # 'teto' ou 'meta'
+                "mes": mes.isoformat(),
+                "valor_limite": float(valor_limite),
+                "categoria_id": categoria_id,
+                "descricao": descricao,
+                "gasto_realizado": 0.0,
+                "ativo": True,
+            }
+            result = self._local_db._client.table("metas").insert(nova).execute()
+            return result.data[0] if result.data else None
+        except Exception:
+            return None
+
+    def atualizar_meta(self, meta_id: str, dados: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Atualiza uma meta."""
+        try:
+            result = self._local_db._client.table("metas").update(dados).eq("id", meta_id).execute()
+            return result.data[0] if result.data else None
+        except Exception:
+            return None
+
+    def deletar_meta(self, meta_id: str) -> bool:
+        """Deleta uma meta (soft delete)."""
+        return self.atualizar_meta(meta_id, {"ativo": False}) is not None
+
+    # ==================== CONTAS A PAGAR/RECEBER ====================
+
+    def listar_contas_pagaveis(self, user_id: str, tipo: str | None = None, pago: bool | None = None) -> List[Dict[str, Any]]:
+        """Lista contas a pagar ou receber."""
+        try:
+            query = self._local_db._client.table("contas_pagaveis").select("*")
+            query = query.eq("user_id", user_id)
+            if tipo:
+                query = query.eq("tipo", tipo)
+            if pago is not None:
+                query = query.eq("pago", pago)
+            result = query.execute()
+            return result.data or []
+        except Exception:
+            return []
+
+    def criar_conta_pagavel(self, user_id: str, descricao: str, valor: float, tipo: str, data_vencimento: date, categoria_id: str | None = None, conta_id: str | None = None, transacao_id: str | None = None) -> Optional[Dict[str, Any]]:
+        """Cria uma conta a pagar ou receber."""
+        try:
+            nova = {
+                "user_id": user_id,
+                "descricao": (descricao or "").strip(),
+                "valor": float(valor),
+                "tipo": tipo,  # 'pagar' ou 'receber'
+                "data_vencimento": data_vencimento.isoformat(),
+                "categoria_id": categoria_id,
+                "conta_id": conta_id,
+                "transacao_id": transacao_id,
+                "pago": False,
+            }
+            result = self._local_db._client.table("contas_pagaveis").insert(nova).execute()
+            return result.data[0] if result.data else None
+        except Exception:
+            return None
+
+    def marcar_conta_como_paga(self, conta_id: str, data_pagamento: date | None = None) -> Optional[Dict[str, Any]]:
+        """Marca uma conta como paga/recebida."""
+        try:
+            dados = {"pago": True}
+            if data_pagamento:
+                dados["data_pagamento"] = data_pagamento.isoformat()
+            result = self._local_db._client.table("contas_pagaveis").update(dados).eq("id", conta_id).execute()
+            return result.data[0] if result.data else None
+        except Exception:
+            return None
+
+    def atualizar_conta_pagavel(self, conta_id: str, dados: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Atualiza uma conta pagável."""
+        try:
+            result = self._local_db._client.table("contas_pagaveis").update(dados).eq("id", conta_id).execute()
+            return result.data[0] if result.data else None
+        except Exception:
+            return None
+
+    def deletar_conta_pagavel(self, conta_id: str) -> bool:
+        """Deleta uma conta pagável."""
+        try:
+            self._local_db._client.table("contas_pagaveis").delete().eq("id", conta_id).execute()
+            return True
+        except Exception:
+            return False
 
 
 _fallback_db: DatabaseService | None = None
