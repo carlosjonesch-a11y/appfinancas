@@ -19,7 +19,6 @@ from pages.dashboard import render_dashboard_page, render_widget_resumo_lateral
 from pages.transacoes import render_transacoes_page, render_nova_transacao_page
 from pages.categorias import render_categorias_page
 from pages.orcamentos import render_orcamentos_page
-from pages.metas_contas import render_metas_contas_page
 from pages.configuracoes import render_configuracoes_page
 from pages.cartao_credito import render_cartao_page
 from pages.investimentos import render_investimentos_page
@@ -492,11 +491,10 @@ def render_sidebar():
             "Navegação",
             options=[
                 "📊 Dashboard",
-                "➕ Nova Transação",
+                "💳 Contas",
                 "📋 Transações",
                 "💳 Cartão de Crédito",
                 "📈 Investimentos",
-                "🎯 Metas e Contas",
                 "💰 Provisões",
                 "🏷️ Categorias",
                 "⚙️ Configurações",
@@ -551,14 +549,11 @@ def main():
     elif pagina == "📋 Transações":
         render_transacoes_page()
     
-    elif pagina == "➕ Nova Transação":
+    elif pagina == "💳 Contas":
         render_nova_transacao_page()
         
     elif pagina == "💰 Provisões":
         render_orcamentos_page()
-
-    elif pagina == "🎯 Metas e Contas":
-        render_metas_contas_page()
 
     elif pagina == "💳 Cartão de Crédito":
         render_cartao_page()

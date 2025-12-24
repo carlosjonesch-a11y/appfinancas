@@ -232,34 +232,6 @@ before update on public.investimentos_saldos
 for each row execute function public.set_updated_at();
 
 -- =====================
--- METAS
--- =====================
-create table if not exists public.metas (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references public.usuarios(id) on delete cascade,
-  categoria_id uuid references public.categorias(id) on delete set null,
-  nome text not null,
-  descricao text,
-  tipo text not null check (tipo in ('teto','meta')) default 'teto',
-  mes date not null,
-  valor_limite numeric not null default 0,
-  gasto_realizado numeric not null default 0,
-  ativo boolean not null default true,
-  criado_em timestamptz not null default now(),
-  atualizado_em timestamptz not null default now()
-);
-
-alter table public.metas alter column criado_em set default now();
-alter table public.metas alter column atualizado_em set default now();
-create index if not exists idx_metas_user_id on public.metas(user_id);
-create index if not exists idx_metas_user_mes on public.metas(user_id, mes);
-
-drop trigger if exists trg_metas_updated_at on public.metas;
-create trigger trg_metas_updated_at
-before update on public.metas
-for each row execute function public.set_updated_at();
-
--- =====================
 -- CONTAS A PAGAR/RECEBER
 -- =====================
 create table if not exists public.contas_pagaveis (
@@ -271,6 +243,7 @@ create table if not exists public.contas_pagaveis (
   descricao text not null,
   valor numeric not null default 0,
   tipo text not null check (tipo in ('pagar','receber')),
+  tipo_pagamento text check (tipo_pagamento in ('cartao','pix','debito','dinheiro','transferencia','outro')),
   data_vencimento date not null,
   data_pagamento date,
   pago boolean not null default false,
@@ -392,16 +365,6 @@ drop policy if exists investimentos_saldos_update_own on public.investimentos_sa
 create policy investimentos_saldos_update_own on public.investimentos_saldos for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
 drop policy if exists investimentos_saldos_delete_own on public.investimentos_saldos;
 create policy investimentos_saldos_delete_own on public.investimentos_saldos for delete to authenticated using (auth.uid() = user_id);
-
-alter table public.metas enable row level security;
-drop policy if exists metas_select_own on public.metas;
-create policy metas_select_own on public.metas for select to authenticated using (auth.uid() = user_id);
-drop policy if exists metas_insert_own on public.metas;
-create policy metas_insert_own on public.metas for insert to authenticated with check (auth.uid() = user_id);
-drop policy if exists metas_update_own on public.metas;
-create policy metas_update_own on public.metas for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-drop policy if exists metas_delete_own on public.metas;
-create policy metas_delete_own on public.metas for delete to authenticated using (auth.uid() = user_id);
 
 alter table public.contas_pagaveis enable row level security;
 drop policy if exists contas_pagaveis_select_own on public.contas_pagaveis;

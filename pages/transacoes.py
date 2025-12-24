@@ -177,8 +177,9 @@ def render_transacoes_page():
 
 
 def render_nova_transacao_page():
-    """Página de lançamento manual de transação"""
-    st.header("➕ Nova Transação")
+    """Página de lançamento de contas a pagar/receber"""
+    st.header("💳 Contas")
+    st.caption("Registre contas a pagar ou receber com método de pagamento")
     
     user_id = get_user_id()
     if not user_id:
@@ -196,36 +197,22 @@ def render_nova_transacao_page():
 
 
 def render_lancamento_manual(user_id: str):
-    """Formulário de lançamento manual"""
+    """Formulário de lançamento de contas a pagar/receber"""
 
-    # IMPORTANTE: widgets dentro de st.form não disparam rerun ao mudar.
-    # Se o usuário trocar Tipo dentro do form, a lista de categorias não atualiza.
-    # Por isso, o seletor de Tipo fica fora do form.
+    # Tipo de conta (Pagar ou Receber)
     col_tipo, col_data = st.columns(2)
     with col_tipo:
         tipo = st.selectbox(
             "Tipo",
-            options=["Despesa", "Receita"],
+            options=["Pagar", "Receber"],
             key="manual_tipo"
         )
-    tipo_valor = "despesa" if tipo == "Despesa" else "receita"
-
-    prev_tipo_valor = st.session_state.get("manual_tipo_valor_prev")
-    if prev_tipo_valor and prev_tipo_valor != tipo_valor:
-        # Evita estado inválido quando muda de despesa -> receita (ou vice-versa)
-        for k in ["manual_categoria"]:
-            if k in st.session_state:
-                del st.session_state[k]
-    st.session_state["manual_tipo_valor_prev"] = tipo_valor
-
-    contas = db.listar_contas(user_id)
-    conta_options = {c["nome"]: c["id"] for c in contas} if contas else {}
-    conta_nome_default = list(conta_options.keys())[0] if conta_options else None
+    tipo_conta = "pagar" if tipo == "Pagar" else "receber"
 
     with st.form("form_transacao_manual"):
         with col_data:
-            data = st.date_input(
-                "Data",
+            data_vencimento = st.date_input(
+                "Data de Vencimento",
                 value=date.today(),
                 key="manual_data"
             )
@@ -244,11 +231,28 @@ def render_lancamento_manual(user_id: str):
             )
 
         with col2:
-            categorias = db.listar_categorias(user_id, tipo=tipo_valor)
+            tipo_pagamento_options = ["Cartão", "Pix", "Débito", "Dinheiro", "Transferência", "Outro"]
+            tipo_pagamento_label = st.selectbox(
+                "Método de Pagamento",
+                options=tipo_pagamento_options,
+                key="manual_tipo_pag",
+            )
+            tipo_pagamento_map = {
+                "Cartão": "cartao",
+                "Pix": "pix",
+                "Débito": "debito",
+                "Dinheiro": "dinheiro",
+                "Transferência": "transferencia",
+                "Outro": "outro"
+            }
+            tipo_pagamento = tipo_pagamento_map.get(tipo_pagamento_label, "outro")
+
+        # Categoria (apenas despesas)
+        if tipo_conta == "pagar":
+            categorias = db.listar_categorias(user_id, tipo="despesa")
             cat_options = {f"{c['icone']} {c['nome']}": c["id"] for c in categorias}
             options = list(cat_options.keys()) if cat_options else ["Sem categoria"]
 
-            # Se a seleção atual não existe mais (mudou o tipo), limpar para não quebrar.
             if "manual_categoria" in st.session_state and st.session_state["manual_categoria"] not in options:
                 del st.session_state["manual_categoria"]
 
@@ -257,50 +261,34 @@ def render_lancamento_manual(user_id: str):
                 options=options,
                 key="manual_categoria"
             )
-
-        conta_selecionada = None
-        if conta_options:
-            conta_selecionada = st.selectbox(
-                "Conta",
-                options=list(conta_options.keys()),
-                index=0,
-                key="manual_conta",
-            )
-
-        status_label = st.selectbox(
-            "Status",
-            options=["Realizada", "Prevista"],
-            index=0,
-            key="manual_status",
-            help="Use 'Prevista' para provisões/orçamento por transação.",
-        )
+        else:
+            cat_options = {}
+            categoria_selecionada = None
 
         observacao = st.text_area("Observação (opcional)", key="manual_obs")
 
-        submitted = st.form_submit_button("💾 Salvar Transação", width='stretch')
+        submitted = st.form_submit_button("💾 Salvar Conta", width='stretch')
     
     if submitted:
         if not descricao:
             st.error("Descrição é obrigatória")
             return
         
-        transacao = {
-            "user_id": user_id,
-            "descricao": descricao,
-            "valor": valor,
-            "tipo": tipo_valor,
-            "data": data.isoformat(),
-            "categoria_id": cat_options.get(categoria_selecionada) if cat_options else None,
-            "conta_id": conta_options.get(conta_selecionada) if conta_options and conta_selecionada else None,
-            "observacao": observacao,
-            "modo_lancamento": "manual",
-            "status": "prevista" if status_label == "Prevista" else "realizada",
-        }
+        categoria_id = cat_options.get(categoria_selecionada) if cat_options and categoria_selecionada else None
         
-        resultado = db.criar_transacao(transacao)
+        # Criar conta a pagar/receber
+        resultado = db.criar_conta_pagavel(
+            user_id=user_id,
+            descricao=descricao,
+            valor=valor,
+            tipo=tipo_conta,
+            data_vencimento=data_vencimento,
+            categoria_id=categoria_id,
+            tipo_pagamento=tipo_pagamento
+        )
         
         if resultado:
-            st.success("✅ Transação salva com sucesso!")
+            st.success(f"✅ Conta a {tipo.lower()} criada com sucesso!")
             st.balloons()
             # Limpar dados do formulário
             for key in [
@@ -308,15 +296,15 @@ def render_lancamento_manual(user_id: str):
                 "manual_data",
                 "manual_descricao",
                 "manual_valor",
+                "manual_tipo_pag",
                 "manual_categoria",
-                "manual_conta",
-                "manual_status",
                 "manual_obs",
             ]:
                 if key in st.session_state:
                     del st.session_state[key]
+            st.rerun()
         else:
-            st.error("❌ Erro ao salvar transação no banco de dados")
+            st.error("❌ Erro ao salvar conta no banco de dados")
 
 
 def render_lancamento_cupom(user_id: str):

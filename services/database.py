@@ -963,55 +963,6 @@ class DatabaseService:
 
         return float(total)
 
-    # ==================== METAS ====================
-
-    def listar_metas(self, user_id: str, mes: date | None = None, include_inactive: bool = False) -> List[Dict[str, Any]]:
-        """Lista metas/tetos de gastos do usuário."""
-        try:
-            query = self._local_db._client.table("metas").select("*")
-            query = query.eq("user_id", user_id)
-            if not include_inactive:
-                query = query.eq("ativo", True)
-            if mes:
-                # Filtra metas do mesmo mês/ano
-                inicio = mes.replace(day=1)
-                query = query.gte("mes", inicio.isoformat()).lt("mes", (inicio + timedelta(days=32)).replace(day=1).isoformat())
-            result = query.execute()
-            return result.data or []
-        except Exception:
-            return []
-
-    def criar_meta(self, user_id: str, nome: str, tipo: str, mes: date, valor_limite: float, categoria_id: str | None = None, descricao: str = "") -> Optional[Dict[str, Any]]:
-        """Cria uma nova meta/teto de gasto."""
-        try:
-            nova = {
-                "user_id": user_id,
-                "nome": (nome or "").strip(),
-                "tipo": tipo,  # 'teto' ou 'meta'
-                "mes": mes.isoformat(),
-                "valor_limite": float(valor_limite),
-                "categoria_id": categoria_id,
-                "descricao": descricao,
-                "gasto_realizado": 0.0,
-                "ativo": True,
-            }
-            result = self._local_db._client.table("metas").insert(nova).execute()
-            return result.data[0] if result.data else None
-        except Exception:
-            return None
-
-    def atualizar_meta(self, meta_id: str, dados: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Atualiza uma meta."""
-        try:
-            result = self._local_db._client.table("metas").update(dados).eq("id", meta_id).execute()
-            return result.data[0] if result.data else None
-        except Exception:
-            return None
-
-    def deletar_meta(self, meta_id: str) -> bool:
-        """Deleta uma meta (soft delete)."""
-        return self.atualizar_meta(meta_id, {"ativo": False}) is not None
-
     # ==================== CONTAS A PAGAR/RECEBER ====================
 
     def listar_contas_pagaveis(self, user_id: str, tipo: str | None = None, pago: bool | None = None) -> List[Dict[str, Any]]:
@@ -1028,7 +979,7 @@ class DatabaseService:
         except Exception:
             return []
 
-    def criar_conta_pagavel(self, user_id: str, descricao: str, valor: float, tipo: str, data_vencimento: date, categoria_id: str | None = None, conta_id: str | None = None, transacao_id: str | None = None) -> Optional[Dict[str, Any]]:
+    def criar_conta_pagavel(self, user_id: str, descricao: str, valor: float, tipo: str, data_vencimento: date, categoria_id: str | None = None, conta_id: str | None = None, transacao_id: str | None = None, tipo_pagamento: str | None = None) -> Optional[Dict[str, Any]]:
         """Cria uma conta a pagar ou receber."""
         try:
             nova = {
@@ -1040,6 +991,7 @@ class DatabaseService:
                 "categoria_id": categoria_id,
                 "conta_id": conta_id,
                 "transacao_id": transacao_id,
+                "tipo_pagamento": tipo_pagamento,
                 "pago": False,
             }
             result = self._local_db._client.table("contas_pagaveis").insert(nova).execute()
