@@ -410,29 +410,34 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
         st.info("Nenhuma conta registrada")
         return
 
-    # Filtros de data - mais compacto
+    # Filtros de data - multi-select
     st.markdown("### 🔍 Filtrar por período")
-    col_mes, col_ano, col_limpar = st.columns([1, 1, 0.5])
+    col_mes, col_ano, col_todas, col_limpar = st.columns([1.5, 1.2, 0.8, 0.5])
     
     with col_mes:
-        mes_filtro = st.selectbox(
-            "Mês",
-            options=list(range(1, 13)),
-            format_func=lambda x: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"][x-1],
+        meses_disponiveis = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]
+        meses_selecionados = st.multiselect(
+            "Meses",
+            options=meses_disponiveis,
+            default=[meses_disponiveis[date.today().month - 1]],
             key=f"filtro_mes_{tab_name}",
             label_visibility="collapsed"
         )
     
     with col_ano:
         anos_disponiveis = list(range(2020, 2051))
-        ano_atual_index = anos_disponiveis.index(date.today().year) if date.today().year in anos_disponiveis else 0
-        ano_filtro = st.selectbox(
-            "Ano",
+        anos_selecionados = st.multiselect(
+            "Anos",
             options=anos_disponiveis,
-            index=ano_atual_index,
+            default=[date.today().year],
             key=f"filtro_ano_{tab_name}",
             label_visibility="collapsed"
         )
+    
+    with col_todas:
+        if st.button("✓ Todos", use_container_width=True, key=f"todas_meses_{tab_name}", help="Selecionar todos os meses"):
+            st.session_state[f"filtro_mes_{tab_name}"] = meses_disponiveis.copy()
+            st.rerun()
     
     with col_limpar:
         if st.button("🔄", use_container_width=True, key=f"limpar_filtro_{tab_name}", help="Limpar filtros"):
@@ -440,7 +445,16 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
             st.session_state.pop(f"filtro_ano_{tab_name}", None)
             st.rerun()
     
-    # Filtrar contas por mês/ano
+    # Validação: se nenhum mês/ano selecionado, usar padrão
+    if not meses_selecionados:
+        meses_selecionados = [meses_disponiveis[date.today().month - 1]]
+    if not anos_selecionados:
+        anos_selecionados = [date.today().year]
+    
+    # Filtrar contas por múltiplos meses/anos
+    meses_num = [["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"].index(m) + 1 for m in meses_selecionados]
+    anos_num = anos_selecionados
+    
     contas_filtradas = []
     for conta in contas:
         data_venc = conta.get("data_vencimento", "")
@@ -448,14 +462,13 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
             try:
                 from datetime import datetime
                 data_obj = datetime.fromisoformat(data_venc).date()
-                if data_obj.month == mes_filtro and data_obj.year == ano_filtro:
+                if data_obj.month in meses_num and data_obj.year in anos_num:
                     contas_filtradas.append(conta)
             except:
                 pass
     
     if not contas_filtradas:
-        mes_nomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
-        st.warning(f"📭 Nenhuma conta para {mes_nomes[mes_filtro-1]}/{int(ano_filtro)}")
+        st.warning(f"📭 Nenhuma conta encontrada para o período selecionado")
         return
 
     st.markdown("---")
