@@ -996,7 +996,10 @@ class DatabaseService:
             }
             result = self._local_db._client.table("contas_pagaveis").insert(nova).execute()
             return result.data[0] if result.data else None
-        except Exception:
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Erro ao criar conta pagável: {e}")
             return None
 
     def marcar_conta_como_paga(self, conta_id: str, data_pagamento: date | None = None) -> Optional[Dict[str, Any]]:

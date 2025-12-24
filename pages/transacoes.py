@@ -305,6 +305,136 @@ def render_lancamento_manual(user_id: str):
             st.rerun()
         else:
             st.error("❌ Erro ao salvar conta no banco de dados")
+    
+    # Seção de Gerenciamento de Contas
+    st.divider()
+    st.subheader("📋 Suas Contas")
+    
+    # Abas para Pendentes e Pagas
+    tab_pendentes, tab_pagas = st.tabs(["⏳ Pendentes", "✅ Pagas"])
+    
+    with tab_pendentes:
+        render_gerenciar_contas(user_id, pago=False)
+    
+    with tab_pagas:
+        render_gerenciar_contas(user_id, pago=True)
+
+
+def render_gerenciar_contas(user_id: str, pago: bool = False):
+    """Gerencia contas a pagar/receber com opções de edição"""
+    contas = db.listar_contas_pagaveis(user_id, pago=pago)
+    
+    if not contas:
+        st.info("Nenhuma conta encontrada" if pago else "Nenhuma conta pendente")
+        return
+    
+    # Adicionar ícone de tipo
+    tipo_icone = {"pagar": "💳", "receber": "💰"}
+    
+    for idx, conta in enumerate(contas):
+        col1, col2, col3, col4 = st.columns([2, 2, 1, 1], gap="small")
+        
+        with col1:
+            tipo_display = tipo_icone.get(conta.get("tipo", "pagar"), "")
+            st.write(f"**{tipo_display} {conta['descricao']}**")
+            st.caption(f"Vencimento: {conta.get('data_vencimento', 'N/A')}")
+        
+        with col2:
+            st.metric("Valor", f"R$ {float(conta['valor']):.2f}")
+        
+        with col3:
+            tipo_pag = conta.get("tipo_pagamento", "outro")
+            pag_display = {
+                "cartao": "💳 Cartão",
+                "pix": "📱 Pix",
+                "debito": "🏦 Débito",
+                "dinheiro": "💵 Dinheiro",
+                "transferencia": "↔️ Transferência",
+                "outro": "🔄 Outro"
+            }
+            st.caption(pag_display.get(tipo_pag, tipo_pag))
+        
+        with col4:
+            # Botões de ação
+            col_btn1, col_btn2 = st.columns(2, gap="small")
+            
+            with col_btn1:
+                if not pago:
+                    if st.button("✓ Marcar\nComo Pago", key=f"marcar_pago_{conta['id']}_{idx}", use_container_width=True):
+                        resultado = db.marcar_conta_como_paga(conta["id"], date.today())
+                        if resultado:
+                            st.success("✅ Conta marcada como paga!")
+                            st.rerun()
+                        else:
+                            st.error("Erro ao atualizar conta")
+            
+            with col_btn2:
+                if st.button("✏️ Editar", key=f"editar_{conta['id']}_{idx}", use_container_width=True):
+                    st.session_state[f"editar_conta_{conta['id']}"] = True
+        
+        # Seção de edição (se ativada)
+        if st.session_state.get(f"editar_conta_{conta['id']}", False):
+            st.write("---")
+            st.subheader("✏️ Editar Conta")
+            
+            with st.form(f"form_editar_{conta['id']}"):
+                new_descricao = st.text_input("Descrição", value=conta.get("descricao", ""))
+                new_valor = st.number_input(
+                    "Valor (R$)",
+                    value=float(conta.get("valor", 0)),
+                    min_value=0.01,
+                    step=0.01
+                )
+                
+                tipo_pag_options = ["Cartão", "Pix", "Débito", "Dinheiro", "Transferência", "Outro"]
+                current_tipo = {
+                    "cartao": "Cartão",
+                    "pix": "Pix",
+                    "debito": "Débito",
+                    "dinheiro": "Dinheiro",
+                    "transferencia": "Transferência",
+                    "outro": "Outro"
+                }.get(conta.get("tipo_pagamento", "outro"), "Outro")
+                
+                new_tipo_pag_label = st.selectbox(
+                    "Método de Pagamento",
+                    options=tipo_pag_options,
+                    index=tipo_pag_options.index(current_tipo) if current_tipo in tipo_pag_options else 0
+                )
+                
+                tipo_pagamento_map = {
+                    "Cartão": "cartao",
+                    "Pix": "pix",
+                    "Débito": "debito",
+                    "Dinheiro": "dinheiro",
+                    "Transferência": "transferencia",
+                    "Outro": "outro"
+                }
+                new_tipo_pagamento = tipo_pagamento_map.get(new_tipo_pag_label, "outro")
+                
+                col_salvar, col_cancelar = st.columns(2)
+                
+                with col_salvar:
+                    if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
+                        dados_update = {
+                            "descricao": new_descricao,
+                            "valor": new_valor,
+                            "tipo_pagamento": new_tipo_pagamento
+                        }
+                        resultado = db.atualizar_conta_pagavel(conta["id"], dados_update)
+                        if resultado:
+                            st.success("✅ Conta atualizada com sucesso!")
+                            st.session_state[f"editar_conta_{conta['id']}"] = False
+                            st.rerun()
+                        else:
+                            st.error("Erro ao atualizar conta")
+                
+                with col_cancelar:
+                    if st.form_submit_button("❌ Cancelar", use_container_width=True):
+                        st.session_state[f"editar_conta_{conta['id']}"] = False
+                        st.rerun()
+        
+        st.write("")
 
 
 def render_lancamento_cupom(user_id: str):
