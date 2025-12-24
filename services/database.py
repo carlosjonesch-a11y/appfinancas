@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -353,6 +353,14 @@ class DatabaseService:
         if tipo:
             resultado = [c for c in resultado if c.get("tipo") == tipo]
         return sorted(resultado, key=lambda x: x.get("nome", ""))
+
+    def buscar_categoria(self, categoria_id: str) -> Optional[Dict[str, Any]]:
+        """Busca uma categoria por ID"""
+        try:
+            result = self._local_db._client.table("categorias").select("*").eq("id", categoria_id).execute()
+            return result.data[0] if result.data else None
+        except Exception:
+            return None
 
     def criar_categoria(self, user_id: str, nome: str, tipo: str, icone: str = "📦") -> Optional[Dict[str, Any]]:
         # Validar se categoria com mesmo nome já existe
@@ -725,34 +733,93 @@ class DatabaseService:
         self._local_db.write(self._local_db.orcamentos_file, orcamentos)
         return novo
 
-    def criar_orcamento(self, user_id: str, categoria_id: str, valor_limite: float, periodo: str = "mensal") -> Optional[Dict[str, Any]]:
-        return self.definir_orcamento(user_id, categoria_id, valor_limite, periodo)
+    def criar_orcamento(self, user_id: str, categoria_id: str, valor_limite: float, mes: int | None = None, ano: int | None = None, periodo: str = "mensal") -> Optional[Dict[str, Any]]:
+        """Cria um orçamento mensal específico."""
+        try:
+            # Verificar se já existe orçamento para esta categoria/mês/ano
+            existing = self._local_db._client.table("orcamentos").select("*").eq("user_id", user_id).eq("categoria_id", categoria_id)
+            if mes is not None:
+                existing = existing.eq("mes", mes)
+            if ano is not None:
+                existing = existing.eq("ano", ano)
+            existing = existing.execute()
+
+            if existing.data and len(existing.data) > 0:
+                # Atualizar existente
+                result = self._local_db._client.table("orcamentos").update({
+                    "valor_limite": float(valor_limite or 0),
+                    "periodo": periodo
+                }).eq("id", existing.data[0]["id"]).execute()
+                return result.data[0] if result.data else None
+
+            # Criar novo
+            novo = {
+                "user_id": user_id,
+                "categoria_id": categoria_id,
+                "valor_limite": float(valor_limite or 0),
+                "periodo": periodo,
+                "mes": mes,
+                "ano": ano,
+                "ativo": True
+            }
+            result = self._local_db._client.table("orcamentos").insert(novo).execute()
+            return result.data[0] if result.data else None
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Erro ao criar orçamento: {e}")
+            return None
 
     def listar_orcamentos(self, user_id: str) -> List[Dict[str, Any]]:
-        orcamentos = self._local_db.read(self._local_db.orcamentos_file)
-        categorias = self._local_db.read(self._local_db.categorias_file)
-        cat_map = {c.get("id"): c for c in categorias if c.get("id")}
+        """Lista orçamentos com gastos realizados por mês."""
+        try:
+            # Buscar orçamentos
+            result = self._local_db._client.table("orcamentos").select("*").eq("user_id", user_id).eq("ativo", True).execute()
+            orcamentos = result.data or []
 
-        ativos = [o for o in orcamentos if o.get("user_id") == user_id and o.get("ativo", True)]
-        hoje = date.today()
-        inicio_mes = hoje.replace(day=1)
+            # Buscar categorias para mapear
+            cat_result = self._local_db._client.table("categorias").select("*").eq("user_id", user_id).execute()
+            categorias = cat_result.data or []
+            cat_map = {c.get("id"): c for c in categorias if c.get("id")}
 
-        transacoes = self.listar_transacoes(user_id, data_inicio=inicio_mes, data_fim=hoje, limite=5000)
+            # Para cada orçamento, calcular gastos do mês
+            for o in orcamentos:
+                cat_id = o.get("categoria_id")
+                if cat_id and cat_id in cat_map:
+                    o["categoria"] = cat_map[cat_id]
 
-        for o in ativos:
-            cat_id = o.get("categoria_id")
-            if cat_id and cat_id in cat_map:
-                o["categoria"] = cat_map[cat_id]
+                mes = o.get("mes")
+                ano = o.get("ano")
 
-            gastos = sum(
-                float(t.get("valor") or 0)
-                for t in transacoes
-                if t.get("categoria_id") == cat_id and t.get("tipo") == "despesa"
-            )
-            o["valor_gasto"] = gastos
-            o["saldo_restante"] = float(o.get("valor_limite") or 0) - gastos
+                if mes and ano:
+                    # Calcular gastos do mês específico
+                    inicio_mes = date(ano, mes, 1)
+                    if mes == 12:
+                        fim_mes = date(ano + 1, 1, 1) - timedelta(days=1)
+                    else:
+                        fim_mes = date(ano, mes + 1, 1) - timedelta(days=1)
 
-        return ativos
+                    transacoes = self.listar_transacoes(user_id, data_inicio=inicio_mes, data_fim=fim_mes, limite=5000)
+
+                    gastos = sum(
+                        float(t.get("valor") or 0)
+                        for t in transacoes
+                        if t.get("categoria_id") == cat_id and t.get("tipo") == "despesa"
+                    )
+                    o["valor_gasto"] = gastos
+                    o["periodo_display"] = f"{mes:02d}/{ano}"
+                else:
+                    o["valor_gasto"] = 0
+                    o["periodo_display"] = "Mensal"
+
+                o["saldo_restante"] = float(o.get("valor_limite") or 0) - o["valor_gasto"]
+
+            return orcamentos
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Erro ao listar orçamentos: {e}")
+            return []
 
     def deletar_orcamento(self, orcamento_id: str) -> bool:
         orcamentos = self._local_db.read(self._local_db.orcamentos_file)
@@ -1009,16 +1076,47 @@ class DatabaseService:
             if data_pagamento:
                 dados["data_pagamento"] = data_pagamento.isoformat()
             result = self._local_db._client.table("contas_pagaveis").update(dados).eq("id", conta_id).execute()
-            return result.data[0] if result.data else None
-        except Exception:
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            return None
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Erro ao marcar conta como paga: {e}")
             return None
 
-    def atualizar_conta_pagavel(self, conta_id: str, dados: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def marcar_conta_como_pendente(self, conta_id: str) -> Optional[Dict[str, Any]]:
+        """Marca uma conta como pendente (não paga)."""
+        try:
+            dados = {"pago": False, "data_pagamento": None}
+            result = self._local_db._client.table("contas_pagaveis").update(dados).eq("id", conta_id).execute()
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            return None
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Erro ao marcar conta como pendente: {e}")
+            return None
         """Atualiza uma conta pagável."""
         try:
+            # Não adicionar atualizado_em aqui - o trigger do banco faz isso
+            # Apenas remover se estava sendo adicionado
+            if "atualizado_em" in dados:
+                del dados["atualizado_em"]
+            
             result = self._local_db._client.table("contas_pagaveis").update(dados).eq("id", conta_id).execute()
-            return result.data[0] if result.data else None
-        except Exception:
+            
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            
+            print(f"Aviso: atualização retornou data vazia para conta_id={conta_id}")
+            return None
+        except Exception as e:
+            import traceback
+            print(f"Erro ao atualizar conta pagável (ID: {conta_id}, Dados: {dados}):")
+            print(f"  {type(e).__name__}: {e}")
+            traceback.print_exc()
             return None
 
     def deletar_conta_pagavel(self, conta_id: str) -> bool:
@@ -1028,6 +1126,28 @@ class DatabaseService:
             return True
         except Exception:
             return False
+
+    def atualizar_conta_pagavel(self, conta_id: str, dados: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Atualiza uma conta pagável."""
+        try:
+            # Não adicionar atualizado_em aqui - o trigger do banco faz isso
+            # Apenas remover se estava sendo adicionado
+            if "atualizado_em" in dados:
+                del dados["atualizado_em"]
+            
+            result = self._local_db._client.table("contas_pagaveis").update(dados).eq("id", conta_id).execute()
+            
+            if result.data and len(result.data) > 0:
+                return result.data[0]
+            
+            print(f"Aviso: atualização retornou data vazia para conta_id={conta_id}")
+            return None
+        except Exception as e:
+            import traceback
+            print(f"Erro ao atualizar conta pagável (ID: {conta_id}, Dados: {dados}):")
+            print(f"  {type(e).__name__}: {e}")
+            traceback.print_exc()
+            return None
 
 
 _fallback_db: DatabaseService | None = None

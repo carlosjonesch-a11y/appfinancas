@@ -267,174 +267,217 @@ def render_lancamento_manual(user_id: str):
 
         observacao = st.text_area("Observação (opcional)", key="manual_obs")
 
+        # Opção de recorrência
+        st.divider()
+        recorrente = st.checkbox("Cadastrar como recorrente", key="manual_recorrente")
+
+        if recorrente:
+            periodo_opcao = st.selectbox(
+                "Período de recorrência",
+                options=["Próximos 12 meses", "Período personalizado"],
+                key="manual_periodo"
+            )
+
+            if periodo_opcao == "Período personalizado":
+                col_data_inicio, col_data_fim = st.columns(2)
+                with col_data_inicio:
+                    data_inicio_rec = st.date_input(
+                        "Data início",
+                        value=data_vencimento,
+                        key="manual_data_inicio_rec"
+                    )
+                with col_data_fim:
+                    data_fim_rec = st.date_input(
+                        "Data fim",
+                        value=data_vencimento.replace(year=data_vencimento.year + 1),
+                        key="manual_data_fim_rec"
+                    )
+            else:
+                data_inicio_rec = data_vencimento
+                data_fim_rec = data_vencimento.replace(year=data_vencimento.year + 1)
+
         submitted = st.form_submit_button("💾 Salvar Conta", width='stretch')
     
     if submitted:
         if not descricao:
             st.error("Descrição é obrigatória")
             return
-        
+
         categoria_id = cat_options.get(categoria_selecionada) if cat_options and categoria_selecionada else None
-        
-        # Criar conta a pagar/receber
-        resultado = db.criar_conta_pagavel(
-            user_id=user_id,
-            descricao=descricao,
-            valor=valor,
-            tipo=tipo_conta,
-            data_vencimento=data_vencimento,
-            categoria_id=categoria_id,
-            tipo_pagamento=tipo_pagamento
-        )
-        
-        if resultado:
-            st.success(f"✅ Conta a {tipo.lower()} criada com sucesso!")
-            st.balloons()
-            # Limpar dados do formulário
-            for key in [
-                "manual_tipo",
-                "manual_data",
-                "manual_descricao",
-                "manual_valor",
-                "manual_tipo_pag",
-                "manual_categoria",
-                "manual_obs",
-            ]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.rerun()
+
+        # Se for recorrente, criar múltiplas contas
+        if recorrente:
+            from dateutil.relativedelta import relativedelta
+
+            contas_criadas = 0
+            data_atual = data_inicio_rec
+
+            while data_atual <= data_fim_rec:
+                resultado = db.criar_conta_pagavel(
+                    user_id=user_id,
+                    descricao=descricao,
+                    valor=valor,
+                    tipo=tipo_conta,
+                    data_vencimento=data_atual,
+                    categoria_id=categoria_id,
+                    tipo_pagamento=tipo_pagamento
+                )
+
+                if resultado:
+                    contas_criadas += 1
+                else:
+                    st.error(f"Erro ao criar conta para {data_atual.strftime('%d/%m/%Y')}")
+                    break
+
+                # Próximo mês
+                data_atual += relativedelta(months=1)
+
+            if contas_criadas > 0:
+                st.success(f"✅ {contas_criadas} contas recorrentes criadas com sucesso!")
+                st.balloons()
         else:
-            st.error("❌ Erro ao salvar conta no banco de dados")
+            # Criar conta única
+            resultado = db.criar_conta_pagavel(
+                user_id=user_id,
+                descricao=descricao,
+                valor=valor,
+                tipo=tipo_conta,
+                data_vencimento=data_vencimento,
+                categoria_id=categoria_id,
+                tipo_pagamento=tipo_pagamento
+            )
+
+            if resultado:
+                st.success(f"✅ Conta a {tipo.lower()} criada com sucesso!")
+                st.balloons()
+
+        # Limpar dados do formulário
+        for key in [
+            "manual_tipo",
+            "manual_data",
+            "manual_descricao",
+            "manual_valor",
+            "manual_tipo_pag",
+            "manual_categoria",
+            "manual_obs",
+            "manual_recorrente",
+            "manual_periodo",
+            "manual_data_inicio_rec",
+            "manual_data_fim_rec"
+        ]:
+            if key in st.session_state:
+                del st.session_state[key]
+        st.rerun()
     
     # Seção de Gerenciamento de Contas
     st.divider()
     st.subheader("📋 Suas Contas")
     
-    # Abas para Pendentes e Pagas
-    tab_pendentes, tab_pagas = st.tabs(["⏳ Pendentes", "✅ Pagas"])
+    # Abas para Pendentes, Pagas e Recebidas
+    tab_pendentes, tab_pagas, tab_recebidas = st.tabs(["⏳ Pendentes", "✅ Pagas", "💰 Recebidas"])
     
     with tab_pendentes:
         render_gerenciar_contas(user_id, pago=False)
     
     with tab_pagas:
-        render_gerenciar_contas(user_id, pago=True)
-
-
-def render_gerenciar_contas(user_id: str, pago: bool = False):
-    """Gerencia contas a pagar/receber com opções de edição"""
-    contas = db.listar_contas_pagaveis(user_id, pago=pago)
+        render_gerenciar_contas(user_id, tipo="pagar", pago=True)
     
+    with tab_recebidas:
+        render_gerenciar_contas(user_id, tipo="receber", pago=True)
+
+
+def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = False):
+    """Gerencia contas a pagar/receber com interface linha por linha"""
+    
+    contas = db.listar_contas_pagaveis(user_id, tipo=tipo, pago=pago)
+
     if not contas:
-        st.info("Nenhuma conta encontrada" if pago else "Nenhuma conta pendente")
+        st.info("Nenhuma conta registrada")
         return
-    
-    # Adicionar ícone de tipo
-    tipo_icone = {"pagar": "💳", "receber": "💰"}
-    
+
+    pag_display = {
+        "cartao": "💳 Cartão",
+        "pix": "📱 Pix",
+        "debito": "💰 Débito",
+        "dinheiro": "💵 Dinheiro",
+        "transferencia": "🏦 Transferência",
+        "outro": "❓ Outro"
+    }
+
+    # Exibir cada conta em uma linha com ações
     for idx, conta in enumerate(contas):
-        col1, col2, col3, col4 = st.columns([2, 2, 1, 1], gap="small")
+        cat_nome = "Sem categoria"
+        if conta.get("categoria_id"):
+            cat = db.buscar_categoria(conta["categoria_id"])
+            if cat:
+                cat_nome = cat.get("nome", "Sem categoria")
+
+        tipo_icon = "💳" if conta.get("tipo") == "pagar" else "💰"
+        status_icon = "✅" if conta.get("pago", False) else "⏳"
         
-        with col1:
-            tipo_display = tipo_icone.get(conta.get("tipo", "pagar"), "")
-            st.write(f"**{tipo_display} {conta['descricao']}**")
-            st.caption(f"Vencimento: {conta.get('data_vencimento', 'N/A')}")
-        
-        with col2:
-            st.metric("Valor", f"R$ {float(conta['valor']):.2f}")
-        
-        with col3:
-            tipo_pag = conta.get("tipo_pagamento", "outro")
-            pag_display = {
-                "cartao": "💳 Cartão",
-                "pix": "📱 Pix",
-                "debito": "🏦 Débito",
-                "dinheiro": "💵 Dinheiro",
-                "transferencia": "↔️ Transferência",
-                "outro": "🔄 Outro"
-            }
-            st.caption(pag_display.get(tipo_pag, tipo_pag))
-        
-        with col4:
-            # Botões de ação
-            col_btn1, col_btn2 = st.columns(2, gap="small")
-            
-            with col_btn1:
-                if not pago:
-                    if st.button("✓ Marcar\nComo Pago", key=f"marcar_pago_{conta['id']}_{idx}", use_container_width=True):
-                        resultado = db.marcar_conta_como_paga(conta["id"], date.today())
-                        if resultado:
-                            st.success("✅ Conta marcada como paga!")
-                            st.rerun()
-                        else:
-                            st.error("Erro ao atualizar conta")
-            
-            with col_btn2:
-                if st.button("✏️ Editar", key=f"editar_{conta['id']}_{idx}", use_container_width=True):
-                    st.session_state[f"editar_conta_{conta['id']}"] = True
-        
-        # Seção de edição (se ativada)
-        if st.session_state.get(f"editar_conta_{conta['id']}", False):
-            st.write("---")
-            st.subheader("✏️ Editar Conta")
-            
-            with st.form(f"form_editar_{conta['id']}"):
-                new_descricao = st.text_input("Descrição", value=conta.get("descricao", ""))
-                new_valor = st.number_input(
-                    "Valor (R$)",
-                    value=float(conta.get("valor", 0)),
-                    min_value=0.01,
-                    step=0.01
-                )
+        # Container para cada conta
+        with st.container():
+            col1, col2, col3, col4, col5, col6 = st.columns([2, 1.5, 1.5, 1.2, 1.2, 1], gap="small")
+
+            with col1:
+                st.markdown(f"**{tipo_icon} {conta['descricao'][:25]}**")
+                st.caption(f"Cat: {cat_nome}")
+
+            with col2:
+                st.metric("Valor", f"R$ {float(conta.get('valor', 0)):.2f}")
+
+            with col3:
+                st.metric("Vence em", conta.get("data_vencimento", "N/A"))
+
+            with col4:
+                st.caption(pag_display.get(conta.get("tipo_pagamento", ""), "Outro"))
+                st.markdown(f"**{status_icon} {'Paga' if conta.get('pago', False) else 'Pendente'}**")
+
+            with col5:
+                if pago:
+                    if st.button("↩️", key=f"pendente_{idx}_{conta['id']}", help="Marcar como pendente"):
+                        db.marcar_conta_como_pendente(conta["id"])
+                        st.rerun()
+                else:
+                    if st.button("✓", key=f"pago_{idx}_{conta['id']}", help="Marcar como paga"):
+                        db.marcar_conta_como_paga(conta["id"], date.today())
+                        st.rerun()
+
+            with col6:
+                if st.button("✏️", key=f"edit_{idx}_{conta['id']}", help="Editar"):
+                    st.session_state[f"edit_conta_{conta['id']}"] = not st.session_state.get(f"edit_conta_{conta['id']}", False)
+                    st.rerun()
+
+        # Seção de edição
+        if st.session_state.get(f"edit_conta_{conta['id']}", False):
+            with st.expander(f"✏️ Editar: {conta['descricao']}", expanded=True):
+                col_a, col_b, col_c = st.columns(3)
                 
-                tipo_pag_options = ["Cartão", "Pix", "Débito", "Dinheiro", "Transferência", "Outro"]
-                current_tipo = {
-                    "cartao": "Cartão",
-                    "pix": "Pix",
-                    "debito": "Débito",
-                    "dinheiro": "Dinheiro",
-                    "transferencia": "Transferência",
-                    "outro": "Outro"
-                }.get(conta.get("tipo_pagamento", "outro"), "Outro")
+                with col_a:
+                    new_desc = st.text_input("Descrição", value=conta.get("descricao", ""), key=f"desc_{conta['id']}")
                 
-                new_tipo_pag_label = st.selectbox(
-                    "Método de Pagamento",
-                    options=tipo_pag_options,
-                    index=tipo_pag_options.index(current_tipo) if current_tipo in tipo_pag_options else 0
-                )
+                with col_b:
+                    new_val = st.number_input("Valor", value=float(conta.get("valor", 0)), min_value=0.01, step=0.01, key=f"val_{conta['id']}")
                 
-                tipo_pagamento_map = {
-                    "Cartão": "cartao",
-                    "Pix": "pix",
-                    "Débito": "debito",
-                    "Dinheiro": "dinheiro",
-                    "Transferência": "transferencia",
-                    "Outro": "outro"
-                }
-                new_tipo_pagamento = tipo_pagamento_map.get(new_tipo_pag_label, "outro")
+                with col_c:
+                    tipo_opts = ["Cartão", "Pix", "Débito", "Dinheiro", "Transferência", "Outro"]
+                    current = {"cartao": "Cartão", "pix": "Pix", "debito": "Débito", "dinheiro": "Dinheiro", "transferencia": "Transferência", "outro": "Outro"}.get(conta.get("tipo_pagamento", "outro"), "Outro")
+                    new_tipo = st.selectbox("Tipo", tipo_opts, index=tipo_opts.index(current), key=f"tipo_{conta['id']}")
                 
-                col_salvar, col_cancelar = st.columns(2)
-                
-                with col_salvar:
-                    if st.form_submit_button("💾 Salvar Alterações", use_container_width=True):
-                        dados_update = {
-                            "descricao": new_descricao,
-                            "valor": new_valor,
-                            "tipo_pagamento": new_tipo_pagamento
-                        }
-                        resultado = db.atualizar_conta_pagavel(conta["id"], dados_update)
-                        if resultado:
-                            st.success("✅ Conta atualizada com sucesso!")
-                            st.session_state[f"editar_conta_{conta['id']}"] = False
-                            st.rerun()
-                        else:
-                            st.error("Erro ao atualizar conta")
-                
-                with col_cancelar:
-                    if st.form_submit_button("❌ Cancelar", use_container_width=True):
-                        st.session_state[f"editar_conta_{conta['id']}"] = False
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.button("💾 Salvar", key=f"save_{conta['id']}", use_container_width=True):
+                        tipo_map = {"Cartão": "cartao", "Pix": "pix", "Débito": "debito", "Dinheiro": "dinheiro", "Transferência": "transferencia", "Outro": "outro"}
+                        db.atualizar_conta_pagavel(conta["id"], {"descricao": new_desc, "valor": new_val, "tipo_pagamento": tipo_map[new_tipo]})
+                        st.session_state[f"edit_conta_{conta['id']}"] = False
+                        st.success("✅ Atualizado!")
+                        st.rerun()
+                with col_cancel:
+                    if st.button("❌ Fechar", key=f"cancel_{conta['id']}", use_container_width=True):
+                        st.session_state[f"edit_conta_{conta['id']}"] = False
                         st.rerun()
         
-        st.write("")
+        st.divider()
 
 
 def render_lancamento_cupom(user_id: str):

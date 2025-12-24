@@ -16,12 +16,9 @@ from config import Config
 from services.database import db
 from services.supabase_auth import sign_in_with_password, sign_up, sign_out
 from pages.dashboard import render_dashboard_page, render_widget_resumo_lateral
-from pages.transacoes import render_transacoes_page, render_nova_transacao_page
+from pages.transacoes import render_nova_transacao_page
 from pages.categorias import render_categorias_page
-from pages.orcamentos import render_orcamentos_page
 from pages.configuracoes import render_configuracoes_page
-from pages.cartao_credito import render_cartao_page
-from pages.investimentos import render_investimentos_page
 
 
 # ==================== CONFIGURAÇÃO DA PÁGINA ====================
@@ -492,11 +489,7 @@ def render_sidebar():
             options=[
                 "📊 Dashboard",
                 "💳 Contas",
-                "📋 Transações",
-                "💳 Cartão de Crédito",
-                "📈 Investimentos",
-                "💰 Provisões",
-                "🏷️ Categorias",
+                "📝 Cadastros",
                 "⚙️ Configurações",
             ],
             label_visibility="collapsed"
@@ -546,22 +539,10 @@ def main():
     if pagina == "📊 Dashboard":
         render_dashboard_page()
     
-    elif pagina == "📋 Transações":
-        render_transacoes_page()
-    
     elif pagina == "💳 Contas":
         render_nova_transacao_page()
-        
-    elif pagina == "💰 Provisões":
-        render_orcamentos_page()
-
-    elif pagina == "💳 Cartão de Crédito":
-        render_cartao_page()
-
-    elif pagina == "📈 Investimentos":
-        render_investimentos_page()
     
-    elif pagina == "🏷️ Categorias":
+    elif pagina == "📝 Cadastros":
         render_categorias_page()
     
     elif pagina == "⚙️ Configurações":

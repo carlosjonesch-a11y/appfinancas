@@ -15,6 +15,17 @@ begin
 end;
 $$;
 
+-- atualizado_em automático (para contas_pagaveis)
+create or replace function public.set_updated_at_pagaveis()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.atualizado_em = now();
+  return new;
+end;
+$$;
+
 -- =====================
 -- USUÁRIOS
 -- =====================
@@ -164,10 +175,12 @@ create table if not exists public.orcamentos (
   categoria_id uuid not null references public.categorias(id) on delete cascade,
   valor_limite numeric not null default 0,
   periodo text not null default 'mensal',
+  mes integer,
+  ano integer,
   ativo boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
-  unique (user_id, categoria_id)
+  unique (user_id, categoria_id, mes, ano)
 );
 
 alter table public.orcamentos alter column created_at set default now();
@@ -261,7 +274,7 @@ create index if not exists idx_contas_pagaveis_pago on public.contas_pagaveis(us
 drop trigger if exists trg_contas_pagaveis_updated_at on public.contas_pagaveis;
 create trigger trg_contas_pagaveis_updated_at
 before update on public.contas_pagaveis
-for each row execute function public.set_updated_at();
+for each row execute function public.set_updated_at_pagaveis();
 
 -- =====================
 -- RLS (opcional)
