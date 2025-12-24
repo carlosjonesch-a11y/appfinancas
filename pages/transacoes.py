@@ -12,6 +12,17 @@ from services.qrcode import qrcode_service, DadosNFCe
 from config import Config
 
 
+def formatar_data_br(data_str: str) -> str:
+    """Converte data ISO (YYYY-MM-DD) para formato brasileiro (DD/MM/YYYY)"""
+    if not data_str or data_str == "N/A":
+        return "N/A"
+    try:
+        data_obj = datetime.fromisoformat(data_str).date()
+        return data_obj.strftime("%d/%m/%Y")
+    except:
+        return data_str
+
+
 def get_user_id() -> str:
     """Retorna ID do usuário atual"""
     return st.session_state.get("user_id", "")
@@ -399,16 +410,17 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
         st.info("Nenhuma conta registrada")
         return
 
-    # Filtros de data
-    st.markdown("### 🔍 Filtros")
-    col_mes, col_ano, col_limpar = st.columns([2, 2, 1])
+    # Filtros de data - mais compacto
+    st.markdown("### 🔍 Filtrar por período")
+    col_mes, col_ano, col_limpar = st.columns([1.5, 1.5, 1])
     
     with col_mes:
         mes_filtro = st.selectbox(
             "Mês",
             options=list(range(1, 13)),
             format_func=lambda x: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"][x-1],
-            key=f"filtro_mes_{tab_name}"
+            key=f"filtro_mes_{tab_name}",
+            label_visibility="collapsed"
         )
     
     with col_ano:
@@ -417,11 +429,12 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
             min_value=2020,
             max_value=2050,
             value=date.today().year,
-            key=f"filtro_ano_{tab_name}"
+            key=f"filtro_ano_{tab_name}",
+            label_visibility="collapsed"
         )
     
     with col_limpar:
-        if st.button("🔄 Limpar", use_container_width=True, key=f"limpar_filtro_{tab_name}"):
+        if st.button("🔄", use_container_width=True, key=f"limpar_filtro_{tab_name}", help="Limpar filtros"):
             st.session_state.pop(f"filtro_mes_{tab_name}", None)
             st.session_state.pop(f"filtro_ano_{tab_name}", None)
             st.rerun()
@@ -440,7 +453,8 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
                 pass
     
     if not contas_filtradas:
-        st.warning(f"Nenhuma conta para {['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][mes_filtro-1]}/{int(ano_filtro)}")
+        mes_nomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+        st.warning(f"📭 Nenhuma conta para {mes_nomes[mes_filtro-1]}/{int(ano_filtro)}")
         return
 
     st.markdown("---")
@@ -464,48 +478,53 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
 
         tipo_icon = "💳" if conta.get("tipo") == "pagar" else "💰"
         status_icon = "✅" if conta.get("pago", False) else "⏳"
+        pago_classe = "bg-green-50" if conta.get("pago", False) else "bg-orange-50"
         
-        # Container para cada conta
+        # Container para cada conta com CSS melhorado
         with st.container():
-            col1, col2, col3, col4, col5, col6 = st.columns([2, 1.5, 1.5, 1.2, 1.2, 1], gap="small")
+            col1, col2, col3, col4, col5 = st.columns([2.5, 1.2, 1.2, 1.5, 1.5], gap="small")
 
             with col1:
-                st.write(f"**{tipo_icon} {conta['descricao'][:25]}**")
-                st.write(f"<small>Cat: {cat_nome}</small>", unsafe_allow_html=True)
+                st.markdown(f"<span style='font-size: 16px; font-weight: 600; color: #1e40af;'>{tipo_icon} {conta['descricao'][:30]}</span>", unsafe_allow_html=True)
+                st.caption(f"📁 {cat_nome}")
 
             with col2:
-                st.write(f"<small>**Valor**</small>")
-                st.write(f"<small>R$ {float(conta.get('valor', 0)):.2f}</small>", unsafe_allow_html=True)
+                valor_display = f"R$ {float(conta.get('valor', 0)):.2f}"
+                st.markdown(f"<span style='font-size: 15px; font-weight: 600; color: #059669;'>{valor_display}</span>", unsafe_allow_html=True)
+                st.caption("Valor")
 
             with col3:
-                st.write(f"<small>**Vence em**</small>")
-                st.write(f"<small>{conta.get('data_vencimento', 'N/A')}</small>", unsafe_allow_html=True)
+                data_venc_br = formatar_data_br(conta.get('data_vencimento', 'N/A'))
+                st.markdown(f"<span style='font-size: 15px; font-weight: 600; color: #d97706;'>{data_venc_br}</span>", unsafe_allow_html=True)
+                st.caption("Vence em")
 
             with col4:
-                st.write(f"<small>{pag_display.get(conta.get('tipo_pagamento', ''), 'Outro')}</small>", unsafe_allow_html=True)
-                st.write(f"<small>**{status_icon} {'Paga' if conta.get('pago', False) else 'Pendente'}**</small>", unsafe_allow_html=True)
+                tipo_display = pag_display.get(conta.get('tipo_pagamento', ''), 'Outro')
+                status_display = f"{status_icon} {'Paga' if conta.get('pago', False) else 'Pendente'}"
+                st.markdown(f"<span style='font-size: 14px;'>{tipo_display}</span>", unsafe_allow_html=True)
+                status_color = "#059669" if conta.get('pago', False) else "#dc2626"
+                st.markdown(f"<span style='font-size: 14px; font-weight: 600; color: {status_color};'>{status_display}</span>", unsafe_allow_html=True)
 
             with col5:
-                col_acao1, col_acao2 = st.columns(2, gap="small")
-                with col_acao1:
+                col_a1, col_a2, col_a3 = st.columns(3, gap="small")
+                with col_a1:
                     if pago:
-                        if st.button("↩️", key=f"pendente_{idx}_{conta['id']}", help="Marcar como pendente", use_container_width=True):
+                        if st.button("↩️", key=f"pendente_{idx}_{conta['id']}", help="Voltar para pendente", use_container_width=True):
                             db.marcar_conta_como_pendente(conta["id"])
                             st.rerun()
                     else:
                         if st.button("✓", key=f"pago_{idx}_{conta['id']}", help="Marcar como paga", use_container_width=True):
                             db.marcar_conta_como_paga(conta["id"], date.today())
                             st.rerun()
-                with col_acao2:
-                    if st.button("🗑️", key=f"delete_{idx}_{conta['id']}", help="Excluir conta", use_container_width=True):
+                with col_a2:
+                    if st.button("🗑️", key=f"delete_{idx}_{conta['id']}", help="Excluir", use_container_width=True):
                         db.deletar_conta_pagavel(conta["id"])
-                        st.success("✅ Conta excluída!")
+                        st.success("✅ Excluído!")
                         st.rerun()
-
-            with col6:
-                if st.button("✏️", key=f"edit_{idx}_{conta['id']}", help="Editar", use_container_width=True):
-                    st.session_state[f"edit_conta_{conta['id']}"] = not st.session_state.get(f"edit_conta_{conta['id']}", False)
-                    st.rerun()
+                with col_a3:
+                    if st.button("✏️", key=f"edit_{idx}_{conta['id']}", help="Editar", use_container_width=True):
+                        st.session_state[f"edit_conta_{conta['id']}"] = not st.session_state.get(f"edit_conta_{conta['id']}", False)
+                        st.rerun()
 
         # Seção de edição
         if st.session_state.get(f"edit_conta_{conta['id']}", False):
