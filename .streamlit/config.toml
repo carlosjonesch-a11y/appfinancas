@@ -1,0 +1,23 @@
+[logger]
+level = "info"
+
+[client]
+showSidebarNavigation = false
+showErrorDetails = true
+toolbarMode = "minimal"
+
+[theme]
+primaryColor = "#1e3a8a"
+backgroundColor = "#f8fafc"
+secondaryBackgroundColor = "#ffffff"
+textColor = "#334155"
+font = "sans serif"
+
+[server]
+headless = true
+runOnSave = true
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
+
