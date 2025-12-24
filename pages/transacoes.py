@@ -412,7 +412,7 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
 
     # Filtros de data - mais compacto
     st.markdown("### 🔍 Filtrar por período")
-    col_mes, col_ano, col_limpar = st.columns([1.5, 1.5, 1])
+    col_mes, col_ano, col_limpar = st.columns([1, 1, 0.5])
     
     with col_mes:
         mes_filtro = st.selectbox(
@@ -424,11 +424,12 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
         )
     
     with col_ano:
-        ano_filtro = st.number_input(
+        anos_disponiveis = list(range(2020, 2051))
+        ano_atual_index = anos_disponiveis.index(date.today().year) if date.today().year in anos_disponiveis else 0
+        ano_filtro = st.selectbox(
             "Ano",
-            min_value=2020,
-            max_value=2050,
-            value=date.today().year,
+            options=anos_disponiveis,
+            index=ano_atual_index,
             key=f"filtro_ano_{tab_name}",
             label_visibility="collapsed"
         )
