@@ -269,32 +269,36 @@ def render_lancamento_manual(user_id: str):
 
         # Opção de recorrência
         st.divider()
-        recorrente = st.checkbox("Cadastrar como recorrente", key="manual_recorrente")
+        st.markdown("### 🔄 Configuração de Recorrência")
+        recorrente = st.checkbox("Cadastrar como recorrente", key="manual_recorrente", value=False)
 
-        if recorrente:
-            periodo_opcao = st.selectbox(
-                "Período de recorrência",
-                options=["Próximos 12 meses", "Período personalizado"],
-                key="manual_periodo"
-            )
+        # Sempre mostrar as opções para evitar timing issues
+        periodo_opcao = st.selectbox(
+            "Período de recorrência",
+            options=["Próximos 12 meses", "Período personalizado"],
+            key="manual_periodo",
+            disabled=not recorrente
+        )
 
-            if periodo_opcao == "Período personalizado":
-                col_data_inicio, col_data_fim = st.columns(2)
-                with col_data_inicio:
-                    data_inicio_rec = st.date_input(
-                        "Data início",
-                        value=data_vencimento,
-                        key="manual_data_inicio_rec"
-                    )
-                with col_data_fim:
-                    data_fim_rec = st.date_input(
-                        "Data fim",
-                        value=data_vencimento.replace(year=data_vencimento.year + 1),
-                        key="manual_data_fim_rec"
-                    )
-            else:
-                data_inicio_rec = data_vencimento
-                data_fim_rec = data_vencimento.replace(year=data_vencimento.year + 1)
+        if periodo_opcao == "Período personalizado":
+            col_data_inicio, col_data_fim = st.columns(2)
+            with col_data_inicio:
+                data_inicio_rec = st.date_input(
+                    "Data início",
+                    value=data_vencimento,
+                    key="manual_data_inicio_rec",
+                    disabled=not recorrente
+                )
+            with col_data_fim:
+                data_fim_rec = st.date_input(
+                    "Data fim",
+                    value=data_vencimento.replace(year=data_vencimento.year + 1),
+                    key="manual_data_fim_rec",
+                    disabled=not recorrente
+                )
+        else:
+            data_inicio_rec = data_vencimento
+            data_fim_rec = data_vencimento.replace(year=data_vencimento.year + 1)
 
         submitted = st.form_submit_button("💾 Salvar Conta", width='stretch')
     
@@ -377,16 +381,16 @@ def render_lancamento_manual(user_id: str):
     tab_pendentes, tab_pagas, tab_recebidas = st.tabs(["⏳ Pendentes", "✅ Pagas", "💰 Recebidas"])
     
     with tab_pendentes:
-        render_gerenciar_contas(user_id, pago=False)
+        render_gerenciar_contas(user_id, pago=False, tab_name="pendentes")
     
     with tab_pagas:
-        render_gerenciar_contas(user_id, tipo="pagar", pago=True)
+        render_gerenciar_contas(user_id, tipo="pagar", pago=True, tab_name="pagas")
     
     with tab_recebidas:
-        render_gerenciar_contas(user_id, tipo="receber", pago=True)
+        render_gerenciar_contas(user_id, tipo="receber", pago=True, tab_name="recebidas")
 
 
-def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = False):
+def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = False, tab_name: str = "default"):
     """Gerencia contas a pagar/receber com interface linha por linha"""
     
     contas = db.listar_contas_pagaveis(user_id, tipo=tipo, pago=pago)
@@ -394,6 +398,52 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
     if not contas:
         st.info("Nenhuma conta registrada")
         return
+
+    # Filtros de data
+    st.markdown("### 🔍 Filtros")
+    col_mes, col_ano, col_limpar = st.columns([2, 2, 1])
+    
+    with col_mes:
+        mes_filtro = st.selectbox(
+            "Mês",
+            options=list(range(1, 13)),
+            format_func=lambda x: ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"][x-1],
+            key=f"filtro_mes_{tab_name}"
+        )
+    
+    with col_ano:
+        ano_filtro = st.number_input(
+            "Ano",
+            min_value=2020,
+            max_value=2050,
+            value=date.today().year,
+            key=f"filtro_ano_{tab_name}"
+        )
+    
+    with col_limpar:
+        if st.button("🔄 Limpar", use_container_width=True, key=f"limpar_filtro_{tab_name}"):
+            st.session_state.pop(f"filtro_mes_{tab_name}", None)
+            st.session_state.pop(f"filtro_ano_{tab_name}", None)
+            st.rerun()
+    
+    # Filtrar contas por mês/ano
+    contas_filtradas = []
+    for conta in contas:
+        data_venc = conta.get("data_vencimento", "")
+        if data_venc:
+            try:
+                from datetime import datetime
+                data_obj = datetime.fromisoformat(data_venc).date()
+                if data_obj.month == mes_filtro and data_obj.year == ano_filtro:
+                    contas_filtradas.append(conta)
+            except:
+                pass
+    
+    if not contas_filtradas:
+        st.warning(f"Nenhuma conta para {['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'][mes_filtro-1]}/{int(ano_filtro)}")
+        return
+
+    st.markdown("---")
 
     pag_display = {
         "cartao": "💳 Cartão",
@@ -405,7 +455,7 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
     }
 
     # Exibir cada conta em uma linha com ações
-    for idx, conta in enumerate(contas):
+    for idx, conta in enumerate(contas_filtradas):
         cat_nome = "Sem categoria"
         if conta.get("categoria_id"):
             cat = db.buscar_categoria(conta["categoria_id"])
@@ -420,31 +470,40 @@ def render_gerenciar_contas(user_id: str, tipo: str | None = None, pago: bool = 
             col1, col2, col3, col4, col5, col6 = st.columns([2, 1.5, 1.5, 1.2, 1.2, 1], gap="small")
 
             with col1:
-                st.markdown(f"**{tipo_icon} {conta['descricao'][:25]}**")
-                st.caption(f"Cat: {cat_nome}")
+                st.write(f"**{tipo_icon} {conta['descricao'][:25]}**")
+                st.write(f"<small>Cat: {cat_nome}</small>", unsafe_allow_html=True)
 
             with col2:
-                st.metric("Valor", f"R$ {float(conta.get('valor', 0)):.2f}")
+                st.write(f"<small>**Valor**</small>")
+                st.write(f"<small>R$ {float(conta.get('valor', 0)):.2f}</small>", unsafe_allow_html=True)
 
             with col3:
-                st.metric("Vence em", conta.get("data_vencimento", "N/A"))
+                st.write(f"<small>**Vence em**</small>")
+                st.write(f"<small>{conta.get('data_vencimento', 'N/A')}</small>", unsafe_allow_html=True)
 
             with col4:
-                st.caption(pag_display.get(conta.get("tipo_pagamento", ""), "Outro"))
-                st.markdown(f"**{status_icon} {'Paga' if conta.get('pago', False) else 'Pendente'}**")
+                st.write(f"<small>{pag_display.get(conta.get('tipo_pagamento', ''), 'Outro')}</small>", unsafe_allow_html=True)
+                st.write(f"<small>**{status_icon} {'Paga' if conta.get('pago', False) else 'Pendente'}**</small>", unsafe_allow_html=True)
 
             with col5:
-                if pago:
-                    if st.button("↩️", key=f"pendente_{idx}_{conta['id']}", help="Marcar como pendente"):
-                        db.marcar_conta_como_pendente(conta["id"])
-                        st.rerun()
-                else:
-                    if st.button("✓", key=f"pago_{idx}_{conta['id']}", help="Marcar como paga"):
-                        db.marcar_conta_como_paga(conta["id"], date.today())
+                col_acao1, col_acao2 = st.columns(2, gap="small")
+                with col_acao1:
+                    if pago:
+                        if st.button("↩️", key=f"pendente_{idx}_{conta['id']}", help="Marcar como pendente", use_container_width=True):
+                            db.marcar_conta_como_pendente(conta["id"])
+                            st.rerun()
+                    else:
+                        if st.button("✓", key=f"pago_{idx}_{conta['id']}", help="Marcar como paga", use_container_width=True):
+                            db.marcar_conta_como_paga(conta["id"], date.today())
+                            st.rerun()
+                with col_acao2:
+                    if st.button("🗑️", key=f"delete_{idx}_{conta['id']}", help="Excluir conta", use_container_width=True):
+                        db.deletar_conta_pagavel(conta["id"])
+                        st.success("✅ Conta excluída!")
                         st.rerun()
 
             with col6:
-                if st.button("✏️", key=f"edit_{idx}_{conta['id']}", help="Editar"):
+                if st.button("✏️", key=f"edit_{idx}_{conta['id']}", help="Editar", use_container_width=True):
                     st.session_state[f"edit_conta_{conta['id']}"] = not st.session_state.get(f"edit_conta_{conta['id']}", False)
                     st.rerun()
 
